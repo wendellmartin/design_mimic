@@ -1,0 +1,53 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Mimic assembly preview</title>
+<style>
+ body{margin:0;background:#1b1d22;color:#ddd;font:13px system-ui;overflow:hidden}
+ #hud{position:fixed;left:10px;top:10px;background:#0008;padding:8px 10px;border-radius:6px;max-width:320px}
+ #hud b{color:#fff} button{margin:2px;font:12px system-ui}
+</style></head><body>
+<div id="hud"><b>Mimic</b> <span id="info">loading…</span><br>
+<button onclick="view('front')">front</button><button onclick="view('side')">side</button>
+<button onclick="view('iso')">iso</button><button onclick="view('back')">back</button>
+<label><input type="checkbox" id="explode" onchange="explode(this.checked)"> explode</label>
+<div id="list"></div></div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+const scene=new THREE.Scene(); scene.background=new THREE.Color(0x1b1d22);
+const cam=new THREE.PerspectiveCamera(35,innerWidth/innerHeight,1,20000);
+const ren=new THREE.WebGLRenderer({antialias:true}); ren.setSize(innerWidth,innerHeight); document.body.appendChild(ren.domElement);
+const ctl=new THREE.OrbitControls(cam,ren.domElement);
+scene.add(new THREE.HemisphereLight(0xffffff,0x444444,1.1));
+const dl=new THREE.DirectionalLight(0xffffff,0.8); dl.position.set(1,2,3); scene.add(dl);
+const dl2=new THREE.DirectionalLight(0xffffff,0.4); dl2.position.set(-2,-1,1); scene.add(dl2);
+scene.add(new THREE.GridHelper(1000,20,0x444444,0x333333).rotateX(Math.PI/2));
+const root=new THREE.Group(); scene.add(root);
+const colors={Head:0xc8c8c8,Jaw:0xb0b0b0,Chest:0xa0a8b8,Pelvis:0xa0a8b8,Spine:0x9098a8};
+let H=500, meshes=[];
+const q=new URLSearchParams(location.search);
+fetch('Mimic-Assembly.json?'+Date.now()).then(r=>r.json()).then(a=>{
+  H=a.height; document.getElementById('info').textContent=`scale ${a.scale}, height ${H.toFixed(0)} mm, ${a.links.length} pieces`;
+  const ld=new THREE.STLLoader(); let n=0;
+  a.links.forEach(l=>{
+    ld.load(l.stl+'?'+Date.now(),g=>{
+      const name=l.label.split(':')[0].replace(/[LR]$/,'');
+      const col=colors[name]||(l.label.includes('Ball')?0xd0a050:(l.label.includes('Snap')?0x60a060:0x9aa0b0));
+      const m=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:col,metalness:0.4,roughness:0.5}));
+      const M=new THREE.Matrix4(); M.set(...l.matrix); m.applyMatrix4(M); m.userData.M=M; m.userData.label=l.label;
+      root.add(m); meshes.push(m);
+      const li=document.createElement('div'); li.textContent=l.label; li.style.cursor='pointer';
+      li.onclick=()=>{meshes.forEach(x=>x.material.emissive.setHex(0)); m.material.emissive.setHex(0x553300)};
+      document.getElementById('list').appendChild(li);
+      if(++n===a.links.length) view(q.get('view')||'iso');
+    });
+  });
+});
+scene.up=new THREE.Vector3(0,0,1); cam.up.set(0,0,1);
+function view(k){const d=H*2.2, c=new THREE.Vector3(0,0,H/2); ctl.target.copy(c);
+  if(k==='front') cam.position.set(0,d,H/2); else if(k==='back') cam.position.set(0,-d,H/2);
+  else if(k==='side') cam.position.set(d,0,H/2); else cam.position.set(d*0.7,d*0.7,H*0.9); ctl.update();}
+function explode(on){meshes.forEach(m=>{m.matrix.identity(); m.applyMatrix4(m.userData.M); if(on){const p=new THREE.Vector3().setFromMatrixPosition(m.userData.M); const c=new THREE.Vector3(0,0,H/2); const d=p.clone().sub(c).multiplyScalar(0.35); m.position.add(d);} m.updateMatrix();});}
+(function loop(){requestAnimationFrame(loop); ctl.update(); ren.render(scene,cam);})();
+addEventListener('resize',()=>{cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();ren.setSize(innerWidth,innerHeight)});
+</script></body></html>

@@ -23,7 +23,7 @@ const dl=new THREE.DirectionalLight(0xffffff,0.8); dl.position.set(1,2,3); scene
 const dl2=new THREE.DirectionalLight(0xffffff,0.4); dl2.position.set(-2,-1,1); scene.add(dl2);
 scene.add(new THREE.GridHelper(1000,20,0x444444,0x333333).rotateX(Math.PI/2));
 const root=new THREE.Group(); scene.add(root);
-const colors={Head:0xc8c8c8,Mouth:0xc27078,Chest:0xa0a8b8,Pelvis:0xa0a8b8,Spine:0x9098a8};
+const colors={Head:0xc8c8c8,MouthGums:0xc25a62,MouthTeeth:0xf1e9d2,Chest:0xa0a8b8,Pelvis:0xa0a8b8,Spine:0x9098a8};
 let H=500, meshes=[];
 const q=new URLSearchParams(location.search);
 fetch('Mimic-Assembly.json?'+Date.now()).then(r=>r.json()).then(a=>{
@@ -31,8 +31,8 @@ fetch('Mimic-Assembly.json?'+Date.now()).then(r=>r.json()).then(a=>{
   const ld=new THREE.STLLoader(); let n=0;
   a.links.forEach(l=>{
     ld.load(l.stl+'?'+Date.now(),g=>{
-      const name=l.label.split(':')[0].replace(/[LR]$/,'');
-      const col=colors[name]||(l.label.includes('Ball')?0xd0a050:(l.label.includes('Snap')?0x60a060:0x9aa0b0));
+      const name=l.label.split(':')[0].replace(/[LR]$/,''), piece=l.label.split(':')[1];
+      const col=colors[piece]||colors[name]||(l.label.includes('Ball')?0xd0a050:(l.label.includes('Snap')?0x60a060:0x9aa0b0));
       const m=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:col,metalness:0.4,roughness:0.5}));
       const M=new THREE.Matrix4(); M.set(...l.matrix); m.applyMatrix4(M); m.userData.M=M; m.userData.label=l.label;
       root.add(m); meshes.push(m);

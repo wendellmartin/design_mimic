@@ -79,6 +79,7 @@ MOUTH_GUM_H = 0.9               # gum ridge height
 MOUTH_TOOTH_BASE = 0.6          # crown heights in TEETH are measured from this height, not the gum top
 MOUTH_TOOTH_ROUND = 0.16        # corner radius of the tooth sections, x the smaller side
 MOUTH_FOSSA = 0.176             # molar central fossa radius, x the smaller top side
+MOUTH_MARGIN_R = 0.0            # fillet radius on the gum where it meets a tooth's cheek/tongue faces (gum widths); 0 = none
 MOUTH_JITTER = 1.0              # scale of the per-tooth randomness (size, yaw, lean, shift); 0 = uniform
 MOUTH_TOOTH_PITCH = 1.1         # tooth spacing along the ridge
 MOUTH_TONGUE_TOOTH = 2          # the tongue's highest point matches this tooth's nominal crown top (index into TEETH: 2 = cuspid)
@@ -637,6 +638,8 @@ def build_mouth(ctx):
         t = pts[j + 1] - pts[j]; t.normalize()
         return P, t
     rng = random.Random(11)
+    teeth = []                                                       # numeric tooth solids (own part)
+    w_alloc, frames = [], []
     z_base = z_top - gw * 0.1                                        # roots run to the base plane (trimmed below)
     z_ref = z_top + gw * MOUTH_TOOTH_BASE                            # crown heights count from here
     half = total / 2 + gw * MOUTH_ARCH_OVERSHOOT
@@ -645,6 +648,7 @@ def build_mouth(ctx):
         a = total / 2
         for i, (kind, w_h, d_f, h_f) in enumerate(TEETH):
             w = half * w_h / wsum                                    # allotted arc for this tooth
+            w_alloc.append(w)
             P, t = at_arc(a + sx * w / 2)
             a += sx * w
             out = P - Cc; out = out - t * out.dot(t); out.normalize()
@@ -668,7 +672,7 @@ def build_mouth(ctx):
             yaw = App.Rotation(up, 5 * J * (rng.random() - 0.5) * 2)   # a few degrees of twist about the vertical
             shift = out * (gw * 0.05 * J * (rng.random() - 0.5) * 2)  # a little in or out of the ridge line
             sh.Placement = App.Placement(V(P.x, P.y, z_base) + shift, lean * yaw * frame)
-            f.append(ctx.obj("Part::Feature", f"Mouth_Tooth{'L' if sx < 0 else 'R'}{i+1}", Shape=sh))
+            teeth.append(sh); frames.append((V(P.x, P.y, z_base), t, out))
     # mouth floor and tongue.  The floor is a thin plate filling the U between the gums (it is what
     # ties the tongue to the gums); the tongue is a flattened ellipsoid in front, full-width slab
     # behind, reaching MOUTH_TONGUE_TIP_MM short of the teeth's inner faces at the front and sides,
@@ -708,24 +712,80 @@ def build_mouth(ctx):
     swap = App.Rotation(V(0, 0, 1), 90) if tt > rx else App.Rotation()  # major axis must be X: swap if the tongue is taller than wide
     slab.Placement = App.Placement(V(0, yc, zc), lift * App.Rotation(V(1, 0, 0), 90) * swap)
     f.append(ctx.obj("Part::Feature", "Mouth_TongueBack", Shape=slab))
-    body = ctx.fuse("Mouth_Body0", f)
-    # groove down the middle of the tongue: a cylinder along its long axis (same pitch), half sunk
-    # into the top surface
+    # ---- two printable pieces in the same frame: the soft body (gums + floor + tongue) and the
+    # teeth.  The teeth are subtracted from the soft body so each sits in an exact socket, and the
+    # socket rims are filleted so the gum wraps the tooth (gingival margin) ------------------
+    soft = ctx.fuse("Mouth_Soft0", f)
+    # groove down the middle of the tongue: a cylinder along its long axis (same pitch), sunk a
+    # little so it meets the surface at a shallow angle
     rgr = gw * MOUTH_GROOVE_R
     top_c = V(0, yc, zc + tt + rgr - gw * MOUTH_GROOVE_DEPTH)          # groove axis: above the tongue's top by radius - depth
     gr = ctx.cylinder("Mouth_Groove", rgr, (yc - y_back + gw) + ry * 1.05)
     gr.Placement = App.Placement(top_c - lift.multVec(V(0, yc - y_back + gw, 0)), lift * App.Rotation(V(1, 0, 0), -90))
-    body = ctx.cut("Mouth_Body1", body, gr)
-    # flat base: everything below the platform top goes
+    soft = ctx.cut("Mouth_Soft1", soft, gr)
+    # flat base: everything below the platform top goes; the back is one square cut at the gum-start
+    # line (just inside the tray's end-lips), a hair ahead of the floor plate's back edge so no two
+    # faces are coplanar.  Both cuts apply to the teeth too (roots, the overshooting last molar).
     big = gw * 30
+    y_cut = y_back + gw * 0.02
     base_cut = ctx.box("Mouth_BaseCut", big, big, gw * 10, x=-big / 2, y=-big / 2, z=z_top - gw * 10)
-    body = ctx.cut("Mouth_Body2", body, base_cut)
-    # the back is one square cut at the gum-start line (just inside the tray's end-lips): the last
-    # molars, the gum ends and the tongue all end on that plane.  (A hair ahead of the floor plate's
-    # back edge, so no two faces are coplanar.)
-    back_cut = ctx.box("Mouth_BackCut", big, big, big, x=-big / 2, y=y_back + gw * 0.02 - big, z=z_top - big / 2)
-    body = ctx.cut("Mouth", body, back_cut)
-    return [("Mouth", body)]
+    back_cut = ctx.box("Mouth_BackCut", big, big, big, x=-big / 2, y=y_cut - big, z=z_top - big / 2)
+    soft = ctx.cut("Mouth_Soft2", soft, base_cut)
+    soft = ctx.cut("Mouth_Soft3", soft, back_cut)
+    ctx.doc.recompute()
+    base_box = Part.makeBox(big, big, gw * 10, V(-big / 2, -big / 2, z_top - gw * 10))
+    back_box = Part.makeBox(big, big, big, V(-big / 2, y_cut - big, z_top - big / 2))
+    cut_teeth = [t.cut(base_box).cut(back_box) for t in teeth]
+    keep = [i for i, t in enumerate(cut_teeth) if not t.isNull() and t.Volume > 1e-9]
+    teeth = [cut_teeth[i] for i in keep]; frames = [frames[i] for i in keep]
+    teeth_comp = Part.makeCompound(teeth)
+    # sockets: subtract the teeth one at a time (a compound tool is less reliable)
+    soft_sh = soft.Shape
+    gums_sh = soft_sh
+    for t in teeth:
+        g2 = gums_sh.cut(t)
+        if not g2.isNull() and g2.isValid() and g2.Volume < gums_sh.Volume:
+            gums_sh = g2
+    gums_sh = gums_sh.removeSplitter()
+    if len(gums_sh.Solids) > 1:                                      # a socket cut can leave a zero-volume sliver
+        gums_sh = max(gums_sh.Solids, key=lambda x: x.Volume)
+    # gingival margin: fillet the edges where the gum surface meets a tooth's cheek or tongue face
+    # (on that tooth's surface, on the original gum surface, not on the base or back planes, and on
+    # the long sides of the tooth -- the edges between neighbouring teeth have no room for a round)
+    def mid(e):
+        return e.valueAt(e.FirstParameter + (e.LastParameter - e.FirstParameter) / 2)
+    tol = gw * 1e-3
+    done, failed = 0, 0
+    for t, (P, td, out) in (zip(teeth, frames) if MOUTH_MARGIN_R > 0 else ()):
+        rim = []
+        for e in gums_sh.Edges:
+            m = mid(e)
+            if abs(m.z - z_top) < tol or abs(m.y - y_cut) < tol:
+                continue
+            if t.distToShape(Part.Vertex(m))[0] > tol or soft_sh.isInside(m, tol, False):
+                continue
+            r = m - P
+            if abs(r.dot(out)) > abs(r.dot(td)):                     # cheek / tongue side, not between teeth
+                rim.append(e)
+        if not rim:
+            continue
+        err = ""
+        for k in (1.0, 0.6, 0.35):
+            try:
+                f2 = gums_sh.makeFillet(gw * MOUTH_MARGIN_R * k, rim)
+                if f2.isValid() and 0.9 * gums_sh.Volume < f2.Volume <= gums_sh.Volume * 1.001 and len(f2.Solids) == 1:
+                    gums_sh = f2; done += 1; break
+            except Exception as ex:
+                err = str(ex)
+        else:
+            failed += 1
+            if failed == 1:
+                print(f"[mimic]   Mouth: first margin fillet failure: {len(rim)} rim edges: {err or 'invalid result'}")
+    if failed:
+        print(f"[mimic]   Mouth: gum margin filleted round {done} teeth, failed on {failed}")
+    gums = ctx.obj("Part::Feature", "MouthGums", Shape=gums_sh)
+    teeth_o = ctx.obj("Part::Feature", "MouthTeeth", Shape=teeth_comp)
+    return [("MouthGums", gums), ("MouthTeeth", teeth_o)]
 
 # ============================================================== neck, spine
 def build_neck(ctx):

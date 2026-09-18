@@ -255,7 +255,36 @@ def finish(doc, printable):
                 x.touch()
             doc.recompute()
             print(f"[mimic]   {o.Label}: after retry null={o.Shape.isNull()} state={o.State}")
-    doc.save()
+    save_doc(doc)
+
+def save_doc(doc):
+    """doc.save() with a recovery: FreeCAD writes the whole document to <FileName>.<uuid> and then
+    renames it into place, and on this machine that rename is sometimes refused ("Failed to write all
+    data to file / Permission denied") although the temp file is a complete, valid zip and a rename
+    from Python a moment later succeeds (an on-close virus scan holding the file, most likely).  So
+    when the save fails, finish the rename ourselves."""
+    import time, glob, zipfile
+    err = None
+    for attempt in range(4):
+        try:
+            doc.save()
+            return
+        except Exception as ex:
+            err = ex
+        tmps = sorted(glob.glob(doc.FileName + ".*"), key=os.path.getmtime)
+        for tmp in reversed(tmps):
+            try:
+                if zipfile.ZipFile(tmp).testzip() is None:
+                    os.replace(tmp, doc.FileName)
+                    print(f"[mimic]   {doc.Name}: FreeCAD's save rename was refused ({err}); moved the temp file into place by hand")
+                    for old in tmps:
+                        if old != tmp and os.path.exists(old):
+                            os.remove(old)
+                    return
+            except Exception:
+                continue
+        time.sleep(1)
+    raise RuntimeError(f"{doc.Name}: could not save ({err})")
     return printable
 
 def export_stl(obj, path, deflection=0.05):

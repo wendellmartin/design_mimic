@@ -27,6 +27,9 @@ ONLY = [p.strip() for p in ONLY.split(",")] if ONLY else None
 
 def main():
     os.makedirs(OUT, exist_ok=True)
+    # no .FCBak rotation: it is what we strip before copying to Drive, and its rename/delete dance
+    # is what refused to save Mimic-Mouth.FCStd ("Failed to write all data to file")
+    App.ParamGet("User parameter:BaseApp/Preferences/Document").SetBool("CreateBackupFiles", False)
     stl_dir = os.path.join(OUT, "STL")
     os.makedirs(stl_dir, exist_ok=True)
     for d in list(App.listDocuments().values()):

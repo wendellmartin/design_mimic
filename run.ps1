@@ -7,5 +7,5 @@ if ($Scale -gt 0) { $env:MIMIC_SCALE = "$Scale" } else { Remove-Item Env:MIMIC_S
 if (-not $Out -and $Scale -gt 0 -and $Scale -ne 0.25) { $Out = Join-Path $root ("Scale-" + $Scale) }
 if ($Out)   { $env:MIMIC_OUT = $Out }     else { Remove-Item Env:MIMIC_OUT -ErrorAction SilentlyContinue }
 if ($Parts) { $env:MIMIC_PARTS = $Parts } else { Remove-Item Env:MIMIC_PARTS -ErrorAction SilentlyContinue }
-& "C:\Program Files\FreeCAD 1.1\bin\FreeCADCmd.exe" -c "exec(open('C:/Users/wende/dev/Claude/mimic/build.py').read())" 2>&1 |
+& "C:\Program Files\FreeCAD 1.1\bin\FreeCADCmd.exe" -c "exec(open('C:/Users/wende/dev/Claude/3D/mimic/build.py').read())" 2>&1 |
     ForEach-Object { $_ -replace "`t", "" -replace "\(\d+ %\)", "" } | Select-String "\[mimic\]|Traceback|Error|line \d+"

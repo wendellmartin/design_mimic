@@ -27,7 +27,7 @@ Under the hood (what Claude runs from bash):
 
 ```bash
 export MIMIC_OUT="C:/Users/wende/AppData/Local/Temp/claude/mimic_out" MIMIC_SCALE=0.25 MIMIC_PARTS=Foot
-"/c/Program Files/FreeCAD 1.1/bin/FreeCADCmd.exe" -c "exec(open('C:/Users/wende/dev/Claude/mimic/build.py').read())" \
+"/c/Program Files/FreeCAD 1.1/bin/FreeCADCmd.exe" -c "exec(open('C:/Users/wende/dev/Claude/3D/mimic/build.py').read())" \
   2>&1 | tr -d '\t' | sed 's/([0-9]* %)//g' | grep -E "\[mimic\]|Traceback|Error|line "
 ```
 
@@ -49,12 +49,16 @@ Never the Drive API for binaries. See the global `~/.claude/CLAUDE.md`.
 
 ## Viewing
 
+Wendell reviews in the interactive viewer in the app's Browser pane, not from screenshots
+pasted into chat — see `../CLAUDE.md` (the `3D` folder notes) for the workflow and the
+correct front-facing camera (+Y is the front).
+
 - `Mimic-Viewer.html` (from `viewer.html`) is a three.js page that reads
   `Mimic-Assembly.json` + `STL/*.stl`. Buttons front/side/iso/back, explode, click a part to
   highlight. Camera can be driven from JS: `ctl.target.set(...)`, `cam.position.set(...)`,
   `ctl.update()`; `meshes[]` has `userData.M` (placement matrix) and `userData.label`.
 - `preview.ps1` serves the Drive folder on http://localhost:8766 for Wendell.
-- Claude's in-app preview: `C:\Users\wende\dev\Claude\.claude\launch.json` entry
+- Claude's in-app preview: `C:\Users\wende\dev\Claude\3D\.claude\launch.json` entry
   `mimic-preview` runs FreeCAD's python `-m http.server 8765 --directory
   C:/Users/wende/AppData/Local/Temp/claude/mimic_out`. Wendell says "restart the preview"
   when it has died; use `preview_start {name: "mimic-preview"}`.

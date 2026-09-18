@@ -1,6 +1,6 @@
 """Build every Mimic document.  Run with FreeCADCmd (see run.ps1):
 
-    FreeCADCmd.exe -c "exec(open('C:/Users/wende/dev/Claude/mimic/build.py').read())"
+    FreeCADCmd.exe -c "exec(open('C:/Users/wende/dev/Claude/3D/mimic/build.py').read())"
 
 Environment:
     MIMIC_OUT    output folder (default: G:/My Drive/Projects/3D/Weyland/FNAF/Mimic)
@@ -9,7 +9,7 @@ Environment:
 """
 import os, sys, importlib, traceback
 
-HERE = "C:/Users/wende/dev/Claude/mimic"
+HERE = "C:/Users/wende/dev/Claude/3D/mimic"
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 for m in list(sys.modules):

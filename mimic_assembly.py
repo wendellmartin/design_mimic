@@ -40,7 +40,7 @@ def build_assembly(out_dir, v, built):
     world["ShoulderYoke"] = world["Spine"] * seg_distal(s("SpineLength"))
     world["Neck"] = world["ShoulderYoke"] * P(V(0, 0, HH), ROT0)
     world["Head"] = world["Neck"] * seg_distal(s("NeckLength"))
-    world["Jaw"] = world["Head"]
+    world["Mouth"] = world["Head"]          # the mouth insert is modelled in the head frame
 
     # ---- limbs, left (-X) and right (+X) ------------------------------------------
     for side, sx, rot_out in (("L", -1, ROT_NX), ("R", 1, ROT_PX)):

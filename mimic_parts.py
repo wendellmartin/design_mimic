@@ -222,12 +222,12 @@ def build_elbowball(ctx):
 def build_wristball(ctx):
     return ball(ctx, "WristBall", S("WristBall"), ctx.s("WristBall"))
 
-from mimic_parts_body import (build_foot, build_hand_l, build_hand_r, build_head, build_jaw, build_neck,
+from mimic_parts_body import (build_foot, build_hand_l, build_hand_r, build_head, build_mouth, build_neck,
                               build_spine, build_shoulderyoke, build_pelvis, build_systembox)
 
 BUILDERS = [
     ("SnapTest", build_snaptest),
-    ("Head", build_head), ("Jaw", build_jaw), ("Neck", build_neck),
+    ("Head", build_head), ("Mouth", build_mouth), ("Neck", build_neck),
     ("ShoulderYoke", build_shoulderyoke), ("Spine", build_spine), ("SystemBox", build_systembox), ("Pelvis", build_pelvis),
     ("HipBallL", build_hipball_l), ("HipBallR", build_hipball_r), ("Thigh", build_thigh), ("KneeBall", build_kneeball),
     ("Shin", build_shin), ("AnkleBall", build_ankleball), ("Foot", build_foot),

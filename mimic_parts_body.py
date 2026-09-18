@@ -52,7 +52,8 @@ HEAD_TAPER_DEG = 25.0     # the strap thins to the top-bar thickness over its la
 HEAD_CHEEK_ATTACH_DEG = 119.0   # cheek bar leaves the strap here (C1 = 0 scale); halfway from eye-bottom level to the top-bar split
 HEAD_CHEEK_SIDE = 0.5           # how far out the cheek bar runs: fraction of the way from the eye centre to the head side
 HEAD_CHEEK_DROP = 0.5           # front of the cheek bar sits this many eye radii below the eye bottom
-HEAD_JAW_ATTACH_DEG = 40.0      # jaw bar leaves the strap edges here
+HEAD_JAW_ATTACH_DEG = 28.0      # jaw bar height as an angle up the strap from C1 (z = -cos): 40 was the original, 0 is level with the neck
+HEAD_JAW_ROOT = 0.2             # the jaw bars start this far behind centre (head radii): inside the neck boss when attach is 0
 HEAD_SOCKET_INNER = 0.97        # eye socket cup inner radius, in eye radii (just under 1 so it grips the ball)
 HEAD_SOCKET_THICK = 1.6         # cup wall, in top-bar thicknesses
 HEAD_SOCKET_RIM = 0.1           # socket bowl rim sits this many eye radii below the eye equator
@@ -62,15 +63,78 @@ HEAD_SOCKET_SPAN = 150.0        # socket wedge: degrees of azimuth from the medi
 HEAD_CHEEK_CORNER = 0.5         # cheek bar turns the front corner this many eye radii behind the eye centre
 HEAD_JAW_ANGLE = 45.0           # after the corner the cheek/jaw bars head inward-forward at this angle
 HEAD_JAW_ROUND = 0.7            # front rounding bulge, as a fraction of the half eye spacing
-DENTURE_INSET = 0.4             # lower denture platform sits this far inside the jaw bar (head radii)
+DENTURE_INSET = 0.34            # denture platforms sit this far inside the jaw bar (head radii); ~0.13 would touch it
 DENTURE_FWD = 0.05              # its arms end this far forward of the jaw's corner
-DENTURE_DROP = -0.08            # below the jaw bar (negative = above)
+DENTURE_DROP = -0.08            # lower platform: below the jaw bar (negative = above)
+DENTURE_UPPER_DROP = -0.08      # upper platform: below the cheek bar (negative = above)
 DENTURE_NOSE = 0.9              # front bulge beyond the arm ends, as a fraction of the half width
 DENTURE_W = 1.6                 # platform width, in CageBar diameters
 DENTURE_T = 0.5                 # platform thickness, in CageBar diameters
 DENTURE_ROD = 0.2               # tie-rod radius, in CageBar diameters (under half the platform thickness)
 DENTURE_LIP = 0.2               # lip width and height on the platform's outer and back edges, in CageBar diameters
 HEAD_GUM_HEIGHT = 0.12          # denture platforms: band height (head radii)
+# mouth insert (gums + teeth + tongue), in gum widths unless noted
+MOUTH_CLEAR = 0.1               # clearance between the insert and the tray's lip (CageBar diameters)
+MOUTH_GUM_H = 0.9               # gum ridge height
+MOUTH_TOOTH_BASE = 0.6          # crown heights in TEETH are measured from this height, not the gum top
+MOUTH_TOOTH_ROUND = 0.16        # corner radius of the tooth sections, x the smaller side
+MOUTH_FOSSA = 0.176             # molar central fossa radius, x the smaller top side
+MOUTH_JITTER = 1.0              # scale of the per-tooth randomness (size, yaw, lean, shift); 0 = uniform
+MOUTH_TOOTH_PITCH = 1.1         # tooth spacing along the ridge
+MOUTH_TONGUE_TOOTH = 2          # the tongue's highest point matches this tooth's nominal crown top (index into TEETH: 2 = cuspid)
+MOUTH_TONGUE_LIFT_DEG = 10      # tongue pitched up so the tip lifts
+MOUTH_GROOVE_R = 0.3            # tongue groove: cylinder radius (gum widths) ...
+MOUTH_GROOVE_DEPTH = 0.1        # ... sunk this deep, so it meets the surface at a shallow angle
+MOUTH_TONGUE_TIP_MM = 0.1       # clearance between the tongue and the teeth's inner faces, front and sides (mm, absolute)
+MOUTH_TONGUE_BACK = 0.35        # ellipsoid centre this far from the back cut, as a fraction of the tongue length
+MOUTH_FLOOR_T = 0.25            # mouth-floor plate thickness (joins tongue to gums)
+MOUTH_ARCH_OVERSHOOT = 0.15     # the arch runs this far (gum widths) past the back plane, so the last molar is cut flush
+# lower arch from the midline back: (kind, human width mm, depth / gum width, crown height / gum width)
+TEETH = [("incisor", 5.4, 0.55, 1.2), ("incisor", 5.9, 0.6, 1.15), ("cuspid", 7.25, 0.68, 1.21),
+         ("bicuspid", 7.0, 0.85, 0.95), ("bicuspid", 7.1, 0.85, 0.9),
+         ("molar", 11.4, 0.95, 0.8), ("molar", 10.7, 0.95, 0.75)]
+
+def _rrect(a, b, r, z):
+    """Closed rounded-rectangle wire a x b at height z, corner radius r (arc joins of an offset)."""
+    r = min(r, a * 0.45, b * 0.45)
+    core = Part.makePolygon([V(-a / 2 + r, -b / 2 + r, z), V(a / 2 - r, -b / 2 + r, z), V(a / 2 - r, b / 2 - r, z),
+                             V(-a / 2 + r, b / 2 - r, z), V(-a / 2 + r, -b / 2 + r, z)])
+    return core.makeOffset2D(r, 0, False, False)
+
+def _tooth(w, d, h, wt, dt, bulge=1.0, rnd=None, top_r=0.3, grooves=(), fossa=False):
+    """One tooth in its own frame: X along the arch, Y outward, Z up.  A smooth loft through
+    rounded-rectangle sections (corner radius rnd x the smaller side): w x d at the base, bulging
+    to bulge x that at mid crown, wt x dt at the top, whose rim is filleted top_r x min(wt, dt).
+    Cusps are made by cutting: grooves = any of "x" (along the arch) and "y" (across it) are
+    cylinders sunk into the occlusal surface; fossa adds a spherical dimple at its centre."""
+    rnd = MOUTH_TOOTH_ROUND if rnd is None else rnd
+    r = rnd * min(w, d)
+    secs = [_rrect(w, d, r, 0), _rrect(w * bulge, d * bulge, r, h * 0.55), _rrect(wt, dt, min(r, rnd * min(wt, dt) * 2), h)]
+    try:
+        sh = Part.makeLoft(secs, True, False)
+        if sh.isNull() or not sh.isValid() or sh.Volume < 1e-9:
+            raise ValueError("loft")
+    except Exception:
+        sh = Part.makeLoft([secs[0], secs[2]], True, True)
+    top = [e for e in sh.Edges if abs(e.BoundBox.ZMin - h) < 1e-6 and abs(e.BoundBox.ZMax - h) < 1e-6]
+    for k in (1.0, 0.7, 0.45):                                     # largest fillet OCC will accept
+        try:
+            f2 = sh.makeFillet(min(wt, dt) * top_r * k, top)
+            if f2.isValid() and f2.Volume > sh.Volume * 0.6:
+                sh = f2; break
+        except Exception:
+            pass
+    rg = 0.13 * min(wt, dt); zg = h - rg * 0.55                    # groove radius / axis height (groove ~0.45 r deep)
+    L = 3 * max(w, d)
+    if "x" in grooves:
+        sh = sh.cut(Part.makeCylinder(rg, L, V(-L / 2, 0, zg), V(1, 0, 0)))
+    if "y" in grooves:
+        sh = sh.cut(Part.makeCylinder(rg, L, V(0, -L / 2, zg), V(0, 1, 0)))
+    if fossa:
+        rf = MOUTH_FOSSA * min(wt, dt)
+        sh = sh.cut(Part.makeSphere(rf, V(0, 0, h - rf * 0.35)))
+    return sh.removeSplitter() if (grooves or fossa) else sh
+
 HEAD_GUM_THICK = 0.06           # ...and thickness
 HEAD_PUPIL = 0.14               # pupil dimple radius, in eye diameters
 HEAD_PUPIL_DEPTH = 0.05         # ...and depth
@@ -87,6 +151,56 @@ def _head_geom(ctx):
     z_e = add(z_c, mul(Rc, math.sin(math.radians(eye_lat))))
     eye_az = math.degrees(math.asin(ctx.s("EyeSpacing") / 2 / (Rn * ring_k)))   # eye azimuth from +Y
     return Rc, Rn, z_c, z_cn, z_e, ring_k, eye_lat, eye_az, boss_h
+
+SPINE_STEP = 0.1                # target point spacing along head tube spines (head radii)
+
+def _hermite(Pa, ta, Pb, tb, n=None, ka=1.0, kb=1.0):
+    """Points along a cubic Hermite from Pa (unit tangent ta) to Pb (unit tangent tb); ka/kb scale
+    the tangents.  n defaults to ~one point per SPINE_STEP of chord so spacing stays even."""
+    L = (Pb - Pa).Length
+    if n is None:
+        n = max(3, int(round(L * 1.3 / SPINE_STEP)) + 1)
+    m0, m1 = ta * L * ka, tb * L * kb
+    out = []
+    for i in range(n):
+        s = i / (n - 1)
+        h00 = 2*s**3 - 3*s**2 + 1; h10 = s**3 - 2*s**2 + s; h01 = -2*s**3 + 3*s**2; h11 = s**3 - s**2
+        out.append(Pa * h00 + m0 * h10 + Pb * h01 + m1 * h11)
+    return out
+
+def _head_plan(ctx):
+    """Numeric (unit-sphere) landmarks shared by the head cage and the mouth insert: eye frame,
+    the cheek/jaw plan (x_side, y_post) and the heights of the cheek front (z_front) and jaw (zj)."""
+    Rc, Rn, z_c, z_cn, z_e, ring_k, eye_lat, eye_az, boss_h = _head_geom(ctx)
+    ze_u = math.sin(math.radians(eye_lat))
+    eyeR = ctx.s("EyeDiameter") / 2 / Rn
+    ex = ctx.s("EyeSpacing") / 2 / Rn
+    ey = ring_k * math.cos(math.radians(eye_az)) + ctx.s("EyeDiameter") * 0.1 / Rn
+    th = math.radians(HEAD_CHEEK_ATTACH_DEG)
+    S_pt = V(0, -math.sin(th), -math.cos(th))
+    x_side = ex + (math.sqrt(1 - S_pt.z ** 2) - ex) * HEAD_CHEEK_SIDE
+    y_post = ey - eyeR * HEAD_CHEEK_CORNER              # the front corner of the cheek / jaw plan
+    z_front = ze_u - eyeR - eyeR * HEAD_CHEEK_DROP      # cheek bar height round the front
+    zj = -math.cos(math.radians(HEAD_JAW_ATTACH_DEG))   # jaw bar height
+    return dict(Rn=Rn, z_cn=z_cn, ze_u=ze_u, eyeR=eyeR, ex=ex, ey=ey, S_pt=S_pt,
+                x_side=x_side, y_post=y_post, z_front=z_front, zj=zj)
+
+def _denture_upath(x_arm, y_arm0, yp, zp, nose):
+    """The denture U in unit-sphere coordinates: two arms at x = +/-x_arm from y_arm0 to yp, joined
+    by one smooth rounded front reaching nose beyond the arm ends.  Runs from the -X arm end to the +X."""
+    upath = []
+    for sx in (-1, 1):
+        side = [V(x_arm * sx, y_arm0 + (yp - y_arm0) * i / 3, zp) for i in range(3)]
+        side += _hermite(V(x_arm * sx, yp, zp), V(0, 1, 0), V(0, yp + nose, zp), V(-sx, 0, 0))
+        upath += side if sx == -1 else list(reversed(side))[1:]
+    return upath
+
+def _denture_dims(ctx, hp):
+    """Denture platform plan (unit-sphere x/y, mm widths) shared by the head and the mouth insert."""
+    cb = ctx.s("CageBar")
+    return dict(x_arm=hp["x_side"] - DENTURE_INSET, y_arm0=hp["y_post"] - 0.3, yp=hp["y_post"] + DENTURE_FWD,
+                nose=(hp["x_side"] - DENTURE_INSET) * DENTURE_NOSE,
+                w_n=cb * DENTURE_W, t_n=cb * DENTURE_T, rw_n=cb * DENTURE_LIP, rh_n=cb * DENTURE_LIP)
 
 def _unit_pt(ctx, Rc, z_c, p):
     """Unit-sphere point (relative to the centre) -> expression triple."""
@@ -184,10 +298,9 @@ def build_head(ctx):
     # and runs inward to meet its twin at the bridge of the (absent) nose.  Built as piecewise
     # cubic Hermite curves through waypoints, lofted through oriented sections; the thickness
     # direction follows the head sphere over the crown and the eyeball round the eye.
-    eyeR = ctx.s("EyeDiameter") / 2 / Rn
+    hp = _head_plan(ctx)
+    eyeR, ex, ey = hp["eyeR"], hp["ex"], hp["ey"]
     TTn = ctx.s("CageBar") / 2 / Rn
-    ex = ctx.s("EyeSpacing") / 2 / Rn
-    ey = ring_k * math.cos(math.radians(eye_az)) + ctx.s("EyeDiameter") * 0.1 / Rn
     for k, sx in enumerate((-1, 1)):
         Ec = V(ex * sx, ey, ze_u)                                      # eyeball centre
         off = TWn / 2 / Rn                                             # ribbons sit edge to edge across the strap end
@@ -265,21 +378,7 @@ def build_head(ctx):
     f_eyes = f; f = []                      # group 2: sockets + bosses (eyeballs join this group below)
     # ---- cheek bars and jaw bars: round tubes swept along smooth splines --------------------
     CBn = ctx.s("CageBar") / 2 / Rn
-    SPINE_STEP = 0.1                                            # target point spacing along tube spines (head radii)
-
-    def hermite(Pa, ta, Pb, tb, n=None, ka=1.0, kb=1.0):
-        """Points along a cubic Hermite from Pa (unit tangent ta) to Pb (unit tangent tb); ka/kb scale
-        the tangents.  n defaults to ~one point per SPINE_STEP of chord so spacing stays even."""
-        L = (Pb - Pa).Length
-        if n is None:
-            n = max(3, int(round(L * 1.3 / SPINE_STEP)) + 1)
-        m0, m1 = ta * L * ka, tb * L * kb
-        out = []
-        for i in range(n):
-            s = i / (n - 1)
-            h00 = 2*s**3 - 3*s**2 + 1; h10 = s**3 - 2*s**2 + s; h01 = -2*s**3 + 3*s**2; h11 = s**3 - s**2
-            out.append(Pa * h00 + m0 * h10 + Pb * h01 + m1 * h11)
-        return out
+    hermite = _hermite
 
     def tube(name, pts_unit, radius_expr, frenet=True):
         """Round tube along a B-spline through unit-sphere points (scaled numerically), as a Part::Sweep.
@@ -320,9 +419,10 @@ def build_head(ctx):
         sw.Sections = [prof]; sw.Spine = (spine, ["Edge1"]); sw.Solid = True; sw.Frenet = frenet
         return sw
 
-    def flat_tube(name, pts_unit, w_n, t_n, lip=None):
+    def flat_tube(name, pts_unit, w_n, t_n, lip=None, flip=False):
         """Rectangular-section sweep (w wide, t tall, kept level) along a B-spline through unit-sphere points.
-        lip=(lw, lh) adds a lip of that width/height along the top outer edge (left of travel): an L section."""
+        lip=(lw, lh) adds a lip of that width/height along the top outer edge (left of travel): an L section.
+        flip=True turns the section upside down (lip on the bottom edge) for the upper denture."""
         pts = [V(p.x * Rn, p.y * Rn, z_cn + p.z * Rn) for p in pts_unit]
         bs = Part.BSplineCurve(); bs.interpolate(pts)
         spine = ctx.obj("Part::Feature", f"{name}_Spine")
@@ -335,6 +435,8 @@ def build_head(ctx):
         sec = [(w_n / 2, t_n / 2)] if lip is None else [(w_n / 2, t_n / 2 + lip[1]), (w_n / 2 - lip[0], t_n / 2 + lip[1]),
                                                         (w_n / 2 - lip[0], t_n / 2)]
         sec += [(-w_n / 2, t_n / 2), (-w_n / 2, -t_n / 2), (w_n / 2, -t_n / 2), sec[0]]
+        if flip:
+            e2 = -e2
         rect = Part.makePolygon([P0 + e1 * a + e2 * b for a, b in sec])
         prof = ctx.obj("Part::Feature", f"{name}_Profile")
         prof.Shape = rect; prof.Visibility = False
@@ -353,10 +455,7 @@ def build_head(ctx):
     # back of the eyeball, then sweeps slowly inward to meet its twin on the centreline.  Its height
     # falls steadily from the attachment to the front point, which sits HEAD_CHEEK_DROP below the
     # eye's bottom.
-    th = math.radians(HEAD_CHEEK_ATTACH_DEG)
-    S_pt = V(0, -math.sin(th), -math.cos(th))
-    x_side = ex + (math.sqrt(1 - S_pt.z ** 2) - ex) * HEAD_CHEEK_SIDE
-    y_post = ey - eyeR * HEAD_CHEEK_CORNER              # the front corner
+    S_pt, x_side, y_post = hp["S_pt"], hp["x_side"], hp["y_post"]      # (see _head_plan)
     # front of the cheek/jaw: a short sweep at the corner turning to HEAD_JAW_ANGLE, a straight
     # run at that angle until between the eyes, then a rounding to horizontal at the centre
     def jaw_front_side(z, sx, xs=None, yp=None, xt=None):
@@ -378,10 +477,11 @@ def build_head(ctx):
         return out, yf
     def jaw_front(z):
         return jaw_front_side(z, sx)
-    z_front = ze_u - eyeR - eyeR * HEAD_CHEEK_DROP
+    z_front = hp["z_front"]
     def z_of(y):                                   # height eases (smoothstep) from the attachment down to the corner, then level round the front
         u = max(0.0, min((y - S_pt.y) / (y_post - S_pt.y), 1.0))
         return S_pt.z + (z_front - S_pt.z) * (u * u * (3 - 2 * u))
+    cheek_paths = {}
     for k, sx in (() if "cheek" in SKIP else enumerate((-1, 1))):
         pts = []
         cy = S_pt.y + x_side                       # quarter arc from the back point to the side, radius x_side
@@ -394,19 +494,22 @@ def build_head(ctx):
         front, y_front = jaw_front(0.0)
         pts += front[1:]
         pts = [V(p.x, p.y, z_of(p.y)) for p in pts]
+        cheek_paths[sx] = pts
         f.append(tube(f"Head_Cheek{k+1}", pts, CB))
 
     f_cheek = f; f = []                     # group 3: cheek bars
-    # jaw bar: leaves the strap's side edge low down (HEAD_JAW_ATTACH_DEG), runs straight forward
+    # jaw bar: starts inside the neck boss (or at the strap's side edge when HEAD_JAW_ATTACH_DEG > 0),
+    # level at zj, runs straight forward
     # to the middle of the head, widens out to the cheek bar's width and sweeps round the front
     # like a jaw, meeting its twin at the chin.
     thj = math.radians(HEAD_JAW_ATTACH_DEG)
-    zj = -math.cos(thj)
+    zj = hp["zj"]
     x_edge = ctx.s("HeadBar") / 2 / Rn
     jaw_paths = {}
     for k, sx in (() if "jaw" in SKIP else enumerate((-1, 1))):
-        nj = max(2, int(round(math.sin(thj) / SPINE_STEP)))
-        pts = [V(x_edge * sx, -math.sin(thj) * (1 - i / nj), zj) for i in range(nj + 1)]
+        y_root = max(math.sin(thj), HEAD_JAW_ROOT)
+        nj = max(2, int(round(y_root / SPINE_STEP)))
+        pts = [V(x_edge * sx, -y_root * (1 - i / nj), zj) for i in range(nj + 1)]
         # flare out to the cheek bar's width, then the same plan as the cheek bar's front, straight below it
         pts += hermite(V(x_edge * sx, 0, zj), V(0, 1, 0), V(x_side * sx, y_post - 0.35, zj), V(0, 1, 0))[1:]
         pts += [V(x_side * sx, y_post - 0.35 + 0.35 * i / 3, zj) for i in (1, 2, 3)]
@@ -416,42 +519,40 @@ def build_head(ctx):
         # corrected-Frenet sweep: the flare has an inflection and the runs are straight, both of which
         # break the plain Frenet frame (the cheek, a 3-D curve without either, is fine with Frenet)
         f.append(tube(f"Head_Jaw{k+1}", pts, CB, frenet=False))
-    # lower denture platform: a flat U inside the jaw bar, a little forward and below it, tied to the
-    # jaw tube by thin rods on each side
-    if "jaw" not in SKIP and "denture" not in SKIP:
-        zp = zj - DENTURE_DROP
-        x_arm = x_side - DENTURE_INSET
-        y_arm0 = y_post - 0.3
-        upath = []
-        yp = y_post + DENTURE_FWD
-        for sx in (-1, 1):
-            side = [V(x_arm * sx, y_arm0 + (yp - y_arm0) * i / 3, zp) for i in range(3)]
-            # rounded front: one smooth curve from the arm end to the centreline
-            side += hermite(V(x_arm * sx, yp, zp), V(0, 1, 0), V(0, yp + x_arm * DENTURE_NOSE, zp), V(-sx, 0, 0))
-            upath += side if sx == -1 else list(reversed(side))[1:]
-        w_n, t_n = ctx.s("CageBar") * DENTURE_W, ctx.s("CageBar") * DENTURE_T
-        rw_n = rh_n = ctx.s("CageBar") * DENTURE_LIP
+    # denture platforms: a flat U inside a bar (jaw below, cheek above), a little forward of it and
+    # DENTURE_DROP away from it, tied to the bar's tube by thin rods on each side.  The upper one is
+    # the lower one flipped: lip on its underside, end-lips hanging down, rods going up.
+    def denture(tag, zp, bar_paths, flip):
+        dd = _denture_dims(ctx, hp)
+        x_arm, y_arm0, yp = dd["x_arm"], dd["y_arm0"], dd["yp"]
+        upath = _denture_upath(x_arm, y_arm0, yp, zp, dd["nose"])
+        w_n, t_n, rw_n, rh_n = dd["w_n"], dd["t_n"], dd["rw_n"], dd["rh_n"]
         # platform with a lip along its outer edge (one L-section sweep: a separate lip flush with the
         # edge gave coplanar faces and the fuse dropped the body)
-        f.append(flat_tube("Head_Denture", upath, w_n, t_n, lip=(rw_n, rh_n)))
+        f.append(flat_tube(f"Head_Denture{tag}", upath, w_n, t_n, lip=(rw_n, rh_n), flip=flip))
         # lips across the open ends of the arms: a hair wider and further back than the platform, so no
-        # face is coplanar with it
+        # face is coplanar with it; they stand on the platform (lower) or hang from it (upper)
         eps = ctx.s("CageBar") * 0.02
-        z_top = z_cn + zp * Rn + t_n / 2
+        z_face = z_cn + zp * Rn + (-t_n / 2 if flip else t_n / 2)
+        z_box = z_face - rh_n if flip else z_face - rh_n * 0.3
         for k, sx in enumerate((-1, 1)):
-            f.append(ctx.box(f"Head_DentureBack{k+1}", w_n + 2 * eps, rw_n + eps, rh_n + rh_n * 0.3,
-                             x=x_arm * sx * Rn - w_n / 2 - eps, y=y_arm0 * Rn - eps, z=z_top - rh_n * 0.3))
-        # tie rods from the platform's outer edge to the jaw tube
+            f.append(ctx.box(f"Head_Denture{tag}Back{k+1}", w_n + 2 * eps, rw_n + eps, rh_n + rh_n * 0.3,
+                             x=x_arm * sx * Rn - w_n / 2 - eps, y=y_arm0 * Rn - eps, z=z_box))
+        # tie rods from the platform's outer edge to the bar's tube
         def at_y(path, y, sx):
             return min((p for p in path if p.x * sx > 0.05), key=lambda p: abs(p.y - y))
         for k, sx in enumerate((-1, 1)):
-            jaw_pts = jaw_paths[sx]
+            bar_pts = bar_paths[sx]
             for j, yy in enumerate((y_post - 0.12, y_post + 0.12)):
-                A = at_y(upath, yy, sx); B = at_y(jaw_pts, yy, sx)
+                A = at_y(upath, yy, sx); B = at_y(bar_pts, yy, sx)
                 A = V(A.x * Rn + sx * w_n / 2, A.y * Rn, z_cn + A.z * Rn); B = V(B.x * Rn, B.y * Rn, z_cn + B.z * Rn)
                 # barely embedded at the platform edge (the rod slopes, so a deep embed surfaces through the
-                # top); ends on the jaw tube's centreline
-                f.append(rod(f"Head_DentureRod{k+1}{j+1}", A, B, mul(S("CageBar"), DENTURE_ROD), ctx.s("CageBar") * 0.12))
+                # top); ends on the bar tube's centreline
+                f.append(rod(f"Head_Denture{tag}Rod{k+1}{j+1}", A, B, mul(S("CageBar"), DENTURE_ROD), ctx.s("CageBar") * 0.12))
+    if "jaw" not in SKIP and "denture" not in SKIP:
+        denture("", zj - DENTURE_DROP, jaw_paths, flip=False)              # lower: above the jaw bar
+    if "cheek" not in SKIP and "denture" not in SKIP and "upper" not in SKIP:
+        denture("U", z_front - DENTURE_UPPER_DROP, cheek_paths, flip=True)  # upper: DENTURE_UPPER_DROP from the cheek bar
     # eyeballs on the ring ends, pushed forward a little so the bar enters their backs
 
     for k, sx in enumerate((-1, 1)):
@@ -485,9 +586,146 @@ def build_head(ctx):
     head.Label = "Head"
     return [("Head", head)]
 
-def build_jaw(ctx):
-    """Jaw parked while the head bars are being settled."""
-    return []
+def build_mouth(ctx):
+    """The mouth insert: gums, teeth and a tongue as one organic piece that drops into the lower
+    denture tray (inside its lip) and prints on its flat base.  Head frame, numeric geometry.
+    Gums = a domed horseshoe along the tray's U; teeth = uneven, slightly leaning cones on the
+    ridge with fangs at the corners; tongue = a flattened ellipsoid filling the U with its tip
+    lifted and a groove down the middle.  The arms end in a diagonal tear just ahead of the
+    tray's end-lips; the back is otherwise plain."""
+    import random
+    hp = _head_plan(ctx); dd = _denture_dims(ctx, hp)
+    Rn, z_cn = hp["Rn"], hp["z_cn"]
+    zp = hp["zj"] - DENTURE_DROP                                  # lower platform centre (unit)
+    z_top = z_cn + zp * Rn + dd["t_n"] / 2                        # platform top = the insert's base plane (mm)
+    clear = ctx.s("CageBar") * MOUTH_CLEAR
+    gw = dd["w_n"] - dd["rw_n"] - clear                           # gum width: the platform less its lip and a clearance
+    gh = gw * MOUTH_GUM_H
+    off = (dd["rw_n"] + clear) / 2 / Rn                           # gum centreline sits this far inside the platform's
+    x_arm, yp, nose = dd["x_arm"] - off, dd["yp"] - off, dd["nose"] - off
+    y0 = dd["y_arm0"] + (dd["rw_n"] + clear) / Rn                  # arms start clear of the end-lips
+    pts = [V(p.x * Rn, p.y * Rn, z_top) for p in _denture_upath(x_arm, y0, yp, zp, nose)]
+    f = []
+    # gum ridge: an ellipse (gum width x 2*gum height) swept along the U with its centre on the base
+    # plane; the lower half is cut away below, leaving a domed ridge with a flat bottom
+    bs = Part.BSplineCurve(); bs.interpolate(pts)
+    spine = ctx.obj("Part::Feature", "Mouth_GumSpine"); spine.Shape = Part.Wire(bs.toShape()); spine.Visibility = False
+    d = bs.tangent(bs.FirstParameter)[0]
+    e1 = V(0, 0, 1).cross(d); e1.normalize(); e2 = d.cross(e1); e2.normalize()
+    # (Part.Ellipse wants major >= minor; when the ridge is taller than half its width the major
+    #  axis goes vertical, so the frame's X is swapped to e2 -- still right-handed: e2 x -e1 = d)
+    a1, a2 = (e1, e2) if gw / 2 >= gh else (e2, -e1)
+    ell = Part.Ellipse(V(0, 0, 0), max(gw / 2, gh), min(gw / 2, gh)).toShape()
+    ell.Placement = App.Placement(pts[0], App.Rotation(App.Matrix(a1.x, a2.x, d.x, 0, a1.y, a2.y, d.y, 0, a1.z, a2.z, d.z, 0, 0, 0, 0, 1)))
+    prof = ctx.obj("Part::Feature", "Mouth_GumProfile"); prof.Shape = Part.Wire([ell]); prof.Visibility = False
+    gum = ctx.obj("Part::Sweep", "Mouth_Gum")
+    gum.Sections = [prof]; gum.Spine = (spine, ["Edge1"]); gum.Solid = True; gum.Frenet = False
+    f.append(gum)
+    # teeth: the human lower arch from the midline back -- central and lateral incisors (blades),
+    # cuspid (a blunt narrower blade), two bicuspids (one groove), two molars (two grooves and a
+    # fossa); no third molars.  Widths are the human proportions scaled so the arch fills the arm
+    # and runs MOUTH_ARCH_OVERSHOOT past the back plane (the last molar is cut flush there); each
+    # tooth roots at the base plane and leans a little.
+    seg = [(pts[i + 1] - pts[i]).Length for i in range(len(pts) - 1)]
+    total = sum(seg)
+    Cc = V(0, sum(p.y for p in pts) / len(pts), z_top)              # inside the U, for the outward direction
+    def at_arc(a):
+        acc, j = 0.0, 0
+        while j < len(seg) - 1 and acc + seg[j] < a:
+            acc += seg[j]; j += 1
+        P = pts[j] + (pts[j + 1] - pts[j]) * ((a - acc) / seg[j])
+        t = pts[j + 1] - pts[j]; t.normalize()
+        return P, t
+    rng = random.Random(11)
+    z_base = z_top - gw * 0.1                                        # roots run to the base plane (trimmed below)
+    z_ref = z_top + gw * MOUTH_TOOTH_BASE                            # crown heights count from here
+    half = total / 2 + gw * MOUTH_ARCH_OVERSHOOT
+    wsum = sum(w for _, w, _, _ in TEETH)
+    for sx in (-1, 1):
+        a = total / 2
+        for i, (kind, w_h, d_f, h_f) in enumerate(TEETH):
+            w = half * w_h / wsum                                    # allotted arc for this tooth
+            P, t = at_arc(a + sx * w / 2)
+            a += sx * w
+            out = P - Cc; out = out - t * out.dot(t); out.normalize()
+            up = t.cross(out)
+            if up.z < 0:
+                t = -t; up = -up
+            J = MOUTH_JITTER
+            tw = w * 0.92 * (1 + 0.06 * J * (rng.random() - 0.5))       # crown width (gap between teeth) and depth,
+            dpt = gw * d_f * (1 + 0.08 * J * (rng.random() - 0.5))      # each a few percent off nominal
+            h = z_ref - z_base + gw * h_f * (0.9 + 0.2 * rng.random())   # height from the root plane to the crown top
+            if kind == "incisor":
+                sh = _tooth(tw, dpt, h, tw * 1.05, dpt * 0.28, bulge=1.04, rnd=0.22, top_r=0.45)   # blunted blade
+            elif kind == "cuspid":
+                sh = _tooth(tw, dpt, h, tw * 0.55, dpt * 0.34, bulge=1.06, rnd=0.22, top_r=0.45)   # blunt: a normal human jaw, not fangs
+            elif kind == "bicuspid":
+                sh = _tooth(tw, dpt, h, tw * 0.9, dpt * 0.9, bulge=1.1, rnd=0.25, top_r=0.4, grooves=("x",))
+            else:
+                sh = _tooth(tw, dpt, h, tw * 0.95, dpt * 0.95, bulge=1.1, rnd=0.3, top_r=0.45, grooves=("x", "y"), fossa=True)
+            frame = App.Rotation(App.Matrix(t.x, out.x, up.x, 0, t.y, out.y, up.y, 0, t.z, out.z, up.z, 0, 0, 0, 0, 1))
+            lean = App.Rotation(t, -(4 + 8 * rng.random()))         # tops tilt outward
+            yaw = App.Rotation(up, 5 * J * (rng.random() - 0.5) * 2)   # a few degrees of twist about the vertical
+            shift = out * (gw * 0.05 * J * (rng.random() - 0.5) * 2)  # a little in or out of the ridge line
+            sh.Placement = App.Placement(V(P.x, P.y, z_base) + shift, lean * yaw * frame)
+            f.append(ctx.obj("Part::Feature", f"Mouth_Tooth{'L' if sx < 0 else 'R'}{i+1}", Shape=sh))
+    # mouth floor and tongue.  The floor is a thin plate filling the U between the gums (it is what
+    # ties the tongue to the gums); the tongue is a flattened ellipsoid in front, full-width slab
+    # behind, reaching MOUTH_TONGUE_TIP_MM short of the teeth's inner faces at the front and sides,
+    # pitched up so the tip lifts, cut off square at the back, with a groove down the middle
+    x_in = x_arm * Rn - gw / 2                                       # inner face of the gum arms
+    y_front = (yp + nose) * Rn - gw / 2                              # inner face of the gum at the nose
+    y_back = y0 * Rn
+    tf = gw * MOUTH_FLOOR_T
+    floor_pts = [V(p.x * Rn, p.y * Rn, z_top) for p in _denture_upath(x_arm - gw * 0.35 / Rn, y0, yp - gw * 0.35 / Rn, zp, nose - gw * 0.35 / Rn)]
+    floor_w = Part.Wire(Part.makePolygon(floor_pts + [floor_pts[0]]))
+    floor = ctx.obj("Part::Feature", "Mouth_Floor", Shape=Part.Face(floor_w).extrude(V(0, 0, tf)))
+    floor.Placement = App.Placement(V(0, 0, -gw * 0.1), App.Rotation())   # starts below the base plane, trimmed
+    f.append(floor)
+    lift_r = math.radians(MOUTH_TONGUE_LIFT_DEG)
+    z_goal = gw * (MOUTH_TOOTH_BASE + TEETH[MOUTH_TONGUE_TOOTH][3])           # crown top of the reference tooth, above the base
+    # front: the tip stops MOUTH_TONGUE_TIP_MM short of the central incisors' inner (lingual) faces,
+    # which sit half the gum width less half the incisor depth inside the gum's inner face
+    y_tip = y_front + gw * (0.5 - TEETH[0][2] / 2) - MOUTH_TONGUE_TIP_MM
+    L = y_tip - y_back
+    yc = y_back + L * MOUTH_TONGUE_BACK
+    rx = x_in + gw * (0.5 - TEETH[-1][2] / 2) - MOUTH_TONGUE_TIP_MM       # out to the molars' lingual faces
+    ry = (y_tip - yc) / math.cos(lift_r)
+    # thickness: the tilted ellipsoid peaks at 0.15 tt + sqrt(tt^2 cos^2 + ry^2 sin^2) above the base -> iterate
+    tt = z_goal
+    for _ in range(20):
+        peak = 0.15 * tt + math.sqrt(tt ** 2 * math.cos(lift_r) ** 2 + ry ** 2 * math.sin(lift_r) ** 2)
+        tt *= z_goal / peak
+    lift = App.Rotation(V(1, 0, 0), MOUTH_TONGUE_LIFT_DEG)
+    zc = z_top + tt * 0.15
+    tongue = ctx.ellipsoid("Mouth_Tongue", tt, rx, ry, x=0, y=yc, z=zc, rot=lift)
+    f.append(tongue)
+    # behind its centre the tongue keeps the full section (no taper) back through the cut-off: an
+    # elliptical slab with the ellipsoid's mid-section, extruded backward, sharing the same pitch
+    a_, b_ = max(rx, tt), min(rx, tt)
+    sec = Part.Face(Part.Wire(Part.Ellipse(V(0, 0, 0), a_, b_).toShape()))
+    slab = sec.extrude(V(0, 0, yc - y_back + gw))
+    swap = App.Rotation(V(0, 0, 1), 90) if tt > rx else App.Rotation()  # major axis must be X: swap if the tongue is taller than wide
+    slab.Placement = App.Placement(V(0, yc, zc), lift * App.Rotation(V(1, 0, 0), 90) * swap)
+    f.append(ctx.obj("Part::Feature", "Mouth_TongueBack", Shape=slab))
+    body = ctx.fuse("Mouth_Body0", f)
+    # groove down the middle of the tongue: a cylinder along its long axis (same pitch), half sunk
+    # into the top surface
+    rgr = gw * MOUTH_GROOVE_R
+    top_c = V(0, yc, zc + tt + rgr - gw * MOUTH_GROOVE_DEPTH)          # groove axis: above the tongue's top by radius - depth
+    gr = ctx.cylinder("Mouth_Groove", rgr, (yc - y_back + gw) + ry * 1.05)
+    gr.Placement = App.Placement(top_c - lift.multVec(V(0, yc - y_back + gw, 0)), lift * App.Rotation(V(1, 0, 0), -90))
+    body = ctx.cut("Mouth_Body1", body, gr)
+    # flat base: everything below the platform top goes
+    big = gw * 30
+    base_cut = ctx.box("Mouth_BaseCut", big, big, gw * 10, x=-big / 2, y=-big / 2, z=z_top - gw * 10)
+    body = ctx.cut("Mouth_Body2", body, base_cut)
+    # the back is one square cut at the gum-start line (just inside the tray's end-lips): the last
+    # molars, the gum ends and the tongue all end on that plane.  (A hair ahead of the floor plate's
+    # back edge, so no two faces are coplanar.)
+    back_cut = ctx.box("Mouth_BackCut", big, big, big, x=-big / 2, y=y_back + gw * 0.02 - big, z=z_top - big / 2)
+    body = ctx.cut("Mouth", body, back_cut)
+    return [("Mouth", body)]
 
 # ============================================================== neck, spine
 def build_neck(ctx):

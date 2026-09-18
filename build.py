@@ -78,6 +78,8 @@ def main():
             f.write(f"| {part} | {lbl} | {bb[0]:.1f} | {bb[1]:.1f} | {bb[2]:.1f} | {vol:.1f} | {over} |\n")
     import shutil
     shutil.copy(os.path.join(HERE, "viewer.html"), os.path.join(OUT, "Mimic-Viewer.html"))
+    with open(os.path.join(OUT, "index.html"), "w") as f:      # the folder root opens the viewer
+        f.write('<meta http-equiv="refresh" content="0; url=Mimic-Viewer.html?view=front">')
     print("[mimic] done")
 
 main()

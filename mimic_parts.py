@@ -13,10 +13,13 @@ BIG = 5000.0   # slab size for splitting cuts, mm
 CREST_ROOT = 1.11   # shoulder crest (solid sector) outer radius, as a fraction of ball radius
 GEAR_TIP = 1.4834   # tip radius of the gear spikes on it (was 0.97 * 1.22 + 0.3 when the crest was 1.22 r)
 # limb segment style "b" (two-part piston), all x the segment diameter D unless noted
-PISTON_BARREL_R = 0.28   # the two thick "bones" (piston barrels) at the proximal end
+PISTON_BARREL_R = 0.28   # the two thick "bones" (square piston barrels) at the proximal end: half side
 PISTON_SPREAD = 0.32     # barrel / rod centres sit at +/- this on local X (side by side, radius/ulna)
 PISTON_ROD_R = 0.14      # the thinner rods the barrels narrow to
-PISTON_STROKE = 1 / 3    # barrels run this fraction of the segment length before narrowing
+PISTON_STROKE = 1 / 3    # the lateral barrel runs this fraction of the segment length before narrowing
+PISTON_INNER_STROKE = 1.15   # the medial barrel runs this much further (x the lateral stroke)
+PISTON_NUT_AF = 0.34     # hex nut round each rod where it enters the crosshead: across flats ...
+PISTON_NUT_H = 0.12      # ... and height
 PISTON_GLAND = 0.15      # length of the taper from barrel to rod
 PISTON_BLOCK_R = 0.62    # proximal block (ties the barrels to the cup): radius ...
 PISTON_BLOCK_H = 0.25    # ... and height
@@ -38,12 +41,13 @@ def build_snaptest(ctx):
 
 # ============================================================== generic limb strut
 def segment(ctx, name, length, length_n, dia, dia_n, prox_face, prox_face_n, dist_face, dist_face_n,
-            rods=True, collar=True, extras=None, style="a"):
+            rods=True, collar=True, extras=None, style="a", medial_sx=1):
     """A strut from z=0 (proximal face, dia prox_face) to z=length (distal face, dia dist_face).
     `length` etc. are expression strings, `*_n` the scaled numeric values.  Splits itself to fit the build cube.
     style "a": one central strut with two thin rods and a collar.  style "b": a two-part piston --
     two thick barrels side by side from a proximal block, narrowing at PISTON_STROKE of the length
-    to two rods that run into a distal crosshead (see the PISTON_* knobs)."""
+    to two rods that run into a distal crosshead (see the PISTON_* knobs); medial_sx says which
+    barrel (local X sign) is the medial, longer one."""
     cup = "0.35"                                    # cup height as a fraction of face diameter
     prox_cup_h = mul(prox_face, cup)
     dist_cup_h = mul(dist_face, cup)
@@ -54,17 +58,28 @@ def segment(ctx, name, length, length_n, dia, dia_n, prox_face, prox_face_n, dis
     if style == "b":
         rods = collar = False
         rb, rr = mul(dia, PISTON_BARREL_R), mul(dia, PISTON_ROD_R)
-        z_gland = mul(length, PISTON_STROKE)                                  # barrels end here, taper to the rods
+        side = mul(dia, 2 * PISTON_BARREL_R)
         gland_h = mul(dia, PISTON_GLAND)
         head_h = mul(dia, PISTON_HEAD_H)
         z_head = sub(sub(length, dist_cup_h), head_h)
+        nut_h = mul(dia, PISTON_NUT_H)
         feats.append(ctx.cylinder(f"{name}_Block", mul(dia, PISTON_BLOCK_R), mul(dia, PISTON_BLOCK_H), z=prox_cup_h))
         feats.append(ctx.cylinder(f"{name}_Head", mul(dia, PISTON_HEAD_R), head_h, z=z_head))
         for i, sx in enumerate((-1, 1)):
             x = mul(dia, PISTON_SPREAD * sx)
-            feats.append(ctx.cylinder(f"{name}_Barrel{i+1}", rb, sub(z_gland, prox_cup_h), x=x, z=prox_cup_h))
+            stroke = PISTON_STROKE * (PISTON_INNER_STROKE if sx == medial_sx else 1.0)
+            z_gland = mul(length, stroke)                                     # this barrel ends here, tapers to its rod
+            # square barrel, round gland and rod
+            feats.append(ctx.box(f"{name}_Barrel{i+1}", side, side, sub(z_gland, prox_cup_h),
+                                 x=sub(x, half(side)), y=neg(half(side)), z=prox_cup_h))
             feats.append(ctx.cone(f"{name}_Gland{i+1}", rb, rr, gland_h, x=x, z=z_gland))
             feats.append(ctx.cylinder(f"{name}_PistonRod{i+1}", rr, sub(add(z_head, head_h), z_gland), x=x, z=z_gland))
+            # hex nut where the rod enters the crosshead (bolted-on look)
+            nut = ctx.obj("Part::Prism", f"{name}_Nut{i+1}", Polygon=6)
+            nut.setExpression("Circumradius", f"({mul(dia, PISTON_NUT_AF)} / 2 / cos(30 deg))")
+            nut.setExpression("Height", nut_h)
+            ctx.place(nut, x=x, z=sub(z_head, nut_h))
+            feats.append(nut)
     else:
         feats.append(ctx.cylinder(f"{name}_Strut", half(dia), length))
     if rods:
@@ -198,7 +213,8 @@ def build_thigh(ctx):    return _seg(ctx, "Thigh", "ThighLength", "ThighDiameter
 def build_shin(ctx):     return _seg(ctx, "Shin", "ShinLength", "ShinDiameter", "KneeBall", "AnkleBall")
 def build_upperarm(ctx): return _seg(ctx, "UpperArm", "UpperArmLength", "UpperArmDiameter", "ShoulderBall", "ElbowBall")
 def build_forearm(ctx):  return _seg(ctx, "Forearm", "ForearmLength", "ForearmDiameter", "ElbowBall", "WristBall")
-def build_forearm_r(ctx): return _seg(ctx, "ForearmR", "ForearmLength", "ForearmDiameter", "ElbowBall", "WristBall", style="b")   # style B trial
+# style B trial; on the right arm local +X points to the midline (the limb frame keeps local Y forward)
+def build_forearm_r(ctx): return _seg(ctx, "ForearmR", "ForearmLength", "ForearmDiameter", "ElbowBall", "WristBall", style="b", medial_sx=1)
 
 def build_hipball_l(ctx):
     from mimic_geom import ball_bend

@@ -213,8 +213,11 @@ def build_thigh(ctx):    return _seg(ctx, "Thigh", "ThighLength", "ThighDiameter
 def build_shin(ctx):     return _seg(ctx, "Shin", "ShinLength", "ShinDiameter", "KneeBall", "AnkleBall")
 def build_upperarm(ctx): return _seg(ctx, "UpperArm", "UpperArmLength", "UpperArmDiameter", "ShoulderBall", "ElbowBall")
 def build_forearm(ctx):  return _seg(ctx, "Forearm", "ForearmLength", "ForearmDiameter", "ElbowBall", "WristBall")
-# style B trial; on the right arm local +X points to the midline (the limb frame keeps local Y forward)
-def build_forearm_r(ctx): return _seg(ctx, "ForearmR", "ForearmLength", "ForearmDiameter", "ElbowBall", "WristBall", style="b", medial_sx=1)
+# style B segments (sided files).  The limb frame keeps local Y forward, so local +X points to the
+# midline on the right limbs and away from it on the left: medial_sx = +1 right, -1 left.
+def build_forearm_r(ctx):  return _seg(ctx, "ForearmR", "ForearmLength", "ForearmDiameter", "ElbowBall", "WristBall", style="b", medial_sx=1)
+def build_thigh_l(ctx):    return _seg(ctx, "ThighL", "ThighLength", "ThighDiameter", "HipBall", "KneeBall", style="b", medial_sx=-1)
+def build_upperarm_l(ctx): return _seg(ctx, "UpperArmL", "UpperArmLength", "UpperArmDiameter", "ShoulderBall", "ElbowBall", style="b", medial_sx=-1)
 
 def build_hipball_l(ctx):
     from mimic_geom import ball_bend
@@ -274,8 +277,8 @@ BUILDERS = [
     ("SnapTest", build_snaptest),
     ("Head", build_head), ("Mouth", build_mouth), ("Neck", build_neck),
     ("ShoulderYoke", build_shoulderyoke), ("Spine", build_spine), ("SystemBox", build_systembox), ("Pelvis", build_pelvis),
-    ("HipBallL", build_hipball_l), ("HipBallR", build_hipball_r), ("Thigh", build_thigh), ("KneeBall", build_kneeball),
+    ("HipBallL", build_hipball_l), ("HipBallR", build_hipball_r), ("Thigh", build_thigh), ("ThighL", build_thigh_l), ("KneeBall", build_kneeball),
     ("Shin", build_shin), ("AnkleBall", build_ankleball), ("Foot", build_foot),
-    ("ShoulderBallL", build_shoulderball_l), ("ShoulderBallR", build_shoulderball_r), ("UpperArm", build_upperarm), ("ElbowBall", build_elbowball),
+    ("ShoulderBallL", build_shoulderball_l), ("ShoulderBallR", build_shoulderball_r), ("UpperArm", build_upperarm), ("UpperArmL", build_upperarm_l), ("ElbowBall", build_elbowball),
     ("Forearm", build_forearm), ("ForearmR", build_forearm_r), ("WristBall", build_wristball), ("HandL", build_hand_l), ("HandR", build_hand_r),
 ]

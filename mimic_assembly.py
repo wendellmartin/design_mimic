@@ -72,10 +72,10 @@ def build_assembly(out_dir, v, built):
 
     # which part file serves each frame (sided files exist only for chiral parts)
     def file_for(frame):
-        for base in ("HipBall", "ShoulderBall", "Hand", "Forearm"):      # sided file when built (ForearmR = style B trial)
+        for base in ("HipBall", "ShoulderBall", "Hand", "Forearm", "Thigh", "UpperArm"):   # sided file when built (style B trials)
             if frame.startswith(base):
                 return frame if frame in built else base
-        for base in ("Thigh", "KneeBall", "Shin", "AnkleBall", "Foot", "UpperArm", "ElbowBall", "WristBall"):
+        for base in ("KneeBall", "Shin", "AnkleBall", "Foot", "ElbowBall", "WristBall"):
             if frame.startswith(base):
                 return base
         return frame

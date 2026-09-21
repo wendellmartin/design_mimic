@@ -104,12 +104,12 @@ PARAMS = [
     ("ArmSplay",        "A", 8,   "Pose", "Upper arm out from the body."),
 
     # ---- Version -----------------------------------------------------------
-    ("VersionMajor",    "I", 0, "Version", ""),
-    ("VersionMinor",    "I", 1, "Version", ""),
+    ("VersionMajor",    "I", 1, "Version", ""),
+    ("VersionMinor",    "I", 0, "Version", ""),
     ("VersionBuild",    "I", 0, "Version", ""),
     ("VersionEmbossDepth","L",0.5,"Version", ""),
-    ("VersionNumber",   "S", "0.1.0", "Version", "", "str(VersionMajor) + <<.>> + str(VersionMinor) + <<.>> + str(VersionBuild)"),
-    ("VersionString",   "S", "v0.1.0","Version", "", "<<v>> + VersionNumber"),
+    ("VersionNumber",   "S", "1.0.0", "Version", "", "str(VersionMajor) + <<.>> + str(VersionMinor) + <<.>> + str(VersionBuild)"),
+    ("VersionString",   "S", "v1.0.0","Version", "", "<<v>> + VersionNumber"),
 ]
 
 TYPES = {"L": "App::PropertyLength", "F": "App::PropertyFloat", "A": "App::PropertyAngle",

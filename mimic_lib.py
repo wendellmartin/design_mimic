@@ -188,6 +188,8 @@ class Ctx:
         """Ring of pegs or sockets on a circular mating face centred on the local origin, mating plane at z.
         Returns (fused feature or None, count).  count = 0 means the face is too small for pegs."""
         n = peg_count(face_dia_num, self.v)
+        if os.environ.get("MIMIC_LOG_PEGS"):
+            print(f"[pegs] {self.doc.Name} {name} {kind} face={face_dia_num:.2f}mm n={n}")
         if n == 0:
             return None, 0
         ring_r = f"({face_dia_expr} / 2 - {R('SocketCavityRadius')} - 1.2 mm)"

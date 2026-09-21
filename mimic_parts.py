@@ -25,6 +25,11 @@ PISTON_BLOCK_R = 0.62    # proximal block (ties the barrels to the cup): radius 
 PISTON_BLOCK_H = 0.25    # ... and height
 PISTON_HEAD_R = 0.5      # distal crosshead (ties the rods to the distal cup): radius ...
 PISTON_HEAD_H = 0.2      # ... and height
+# limb segment style "c" (variegated pipe with rounded bumps), x the segment diameter D
+BUMP_CORE_R = 0.36       # the pipe itself
+BUMP_MAJOR_R = 0.34      # bump ring centreline radius (ring tube is centred here)
+BUMP_MINOR_R = (0.16, 0.10)   # ring tube radii, alternating big / small along the pipe
+BUMP_PITCH = 0.4         # spacing between rings
 
 # ============================================================== snap test
 def build_snaptest(ctx):
@@ -44,7 +49,8 @@ def segment(ctx, name, length, length_n, dia, dia_n, prox_face, prox_face_n, dis
             rods=True, collar=True, extras=None, style="a", medial_sx=1):
     """A strut from z=0 (proximal face, dia prox_face) to z=length (distal face, dia dist_face).
     `length` etc. are expression strings, `*_n` the scaled numeric values.  Splits itself to fit the build cube.
-    style "a": one central strut with two thin rods and a collar.  style "b": a two-part piston --
+    style "a": one central strut with two thin rods and a collar.  style "c": a pipe with rounded
+    ring bumps of alternating size (BUMP_* knobs).  style "b": a two-part piston --
     two thick barrels side by side from a proximal block, narrowing at PISTON_STROKE of the length
     to two rods that run into a distal crosshead (see the PISTON_* knobs); medial_sx says which
     barrel (local X sign) is the medial, longer one."""
@@ -80,6 +86,16 @@ def segment(ctx, name, length, length_n, dia, dia_n, prox_face, prox_face_n, dis
             nut.setExpression("Height", nut_h)
             ctx.place(nut, x=x, z=sub(z_head, nut_h))
             feats.append(nut)
+    elif style == "c":
+        rods = collar = False
+        feats.append(ctx.cylinder(f"{name}_Core", mul(dia, BUMP_CORE_R), length))
+        span = sub(length, add(prox_cup_h, dist_cup_h))                     # rings between the cups
+        span_n = length_n - (prox_face_n + dist_face_n) * float(cup)
+        n_b = max(1, int(span_n / (dia_n * BUMP_PITCH)))
+        for i in range(n_b):
+            r_minor = BUMP_MINOR_R[i % len(BUMP_MINOR_R)]
+            feats.append(ctx.torus(f"{name}_Bump{i+1}", mul(dia, BUMP_MAJOR_R), mul(dia, r_minor),
+                                   z=add(prox_cup_h, mul(span, (i + 0.5) / n_b))))
     else:
         feats.append(ctx.cylinder(f"{name}_Strut", half(dia), length))
     if rods:
@@ -216,7 +232,9 @@ def build_forearm(ctx):  return _seg(ctx, "Forearm", "ForearmLength", "ForearmDi
 # style B segments (sided files).  The limb frame keeps local Y forward, so local +X points to the
 # midline on the right limbs and away from it on the left: medial_sx = +1 right, -1 left.
 def build_forearm_r(ctx):  return _seg(ctx, "ForearmR", "ForearmLength", "ForearmDiameter", "ElbowBall", "WristBall", style="b", medial_sx=1)
-def build_thigh_l(ctx):    return _seg(ctx, "ThighL", "ThighLength", "ThighDiameter", "HipBall", "KneeBall", style="b", medial_sx=-1)
+def build_thigh_l(ctx):    return _seg(ctx, "ThighL", "ThighLength", "ThighDiameter", "HipBall", "KneeBall", style="c")
+def build_thigh_r(ctx):    return _seg(ctx, "ThighR", "ThighLength", "ThighDiameter", "HipBall", "KneeBall", style="c")
+def build_upperarm_r(ctx): return _seg(ctx, "UpperArmR", "UpperArmLength", "UpperArmDiameter", "ShoulderBall", "ElbowBall", style="c")
 def build_upperarm_l(ctx): return _seg(ctx, "UpperArmL", "UpperArmLength", "UpperArmDiameter", "ShoulderBall", "ElbowBall", style="b", medial_sx=-1)
 
 def build_hipball_l(ctx):
@@ -277,8 +295,8 @@ BUILDERS = [
     ("SnapTest", build_snaptest),
     ("Head", build_head), ("Mouth", build_mouth), ("Neck", build_neck),
     ("ShoulderYoke", build_shoulderyoke), ("Spine", build_spine), ("SystemBox", build_systembox), ("Pelvis", build_pelvis),
-    ("HipBallL", build_hipball_l), ("HipBallR", build_hipball_r), ("Thigh", build_thigh), ("ThighL", build_thigh_l), ("KneeBall", build_kneeball),
+    ("HipBallL", build_hipball_l), ("HipBallR", build_hipball_r), ("Thigh", build_thigh), ("ThighL", build_thigh_l), ("ThighR", build_thigh_r), ("KneeBall", build_kneeball),
     ("Shin", build_shin), ("AnkleBall", build_ankleball), ("Foot", build_foot),
-    ("ShoulderBallL", build_shoulderball_l), ("ShoulderBallR", build_shoulderball_r), ("UpperArm", build_upperarm), ("UpperArmL", build_upperarm_l), ("ElbowBall", build_elbowball),
+    ("ShoulderBallL", build_shoulderball_l), ("ShoulderBallR", build_shoulderball_r), ("UpperArm", build_upperarm), ("UpperArmL", build_upperarm_l), ("UpperArmR", build_upperarm_r), ("ElbowBall", build_elbowball),
     ("Forearm", build_forearm), ("ForearmR", build_forearm_r), ("WristBall", build_wristball), ("HandL", build_hand_l), ("HandR", build_hand_r),
 ]

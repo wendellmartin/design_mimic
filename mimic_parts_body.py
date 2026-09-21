@@ -21,7 +21,8 @@ TOE_RISE = 0.35     # how high the bottom edge arcs above the sole, fraction of 
 TOE_FAN_DEG = 0.0   # outer toes splay this much (0 = parallel)
 FOOT_ANKLE_W = 0.76 # foot width from the heel to the front face, fraction of FootWidth (parallel sides)
 FOOT_BLOCK = 0.16   # the solid foot block ends this far ahead of the ankle (fraction of FootLength; must cover the ankle post)
-FOOT_WEB = 0.5      # metatarsal web: how far the top dips between the toes at the toe root, fraction of the toe height there
+FOOT_WEB = 0.8      # metatarsal web: how far the top dips between the toes at the toe root, fraction of the toe height there
+WEB_FILLET = 0.25   # rounding of the edge where each web's top meets its front wall (between the toes), fraction of ToeWidth
 FOOT_FILLET = 0.06  # fillet radius on the foot's top edges, fraction of FootWidth
 ROT_PX = App.Rotation(V(0, 1, 0), 90)     # local +Z -> +X
 ROT_NX = App.Rotation(V(0, 1, 0), -90)    # local +Z -> -X
@@ -1174,37 +1175,49 @@ def build_foot(ctx):
     sink_n = 0.01 * FW_n
     xs = [-x_out, 0.0, x_out]
     def section(y, at_toes):
-        zt = instep(y) + (sink_n if at_toes else 0.0)                   # toe top at the root (see _blade_toe, v = 0); block top exactly on the instep
-        h = H_n - zt                                                    # toe height there
+        """The metatarsal section as a wire of true curves (lines, arcs, one BSpline per web) so the
+        ruled loft between sections has no facet creases; both sections have the same 12 edges."""
+        eps = 0.0 if at_toes else 0.002 * FW_n                          # block sections a hair inside the block: its true
+        zt = instep(y) + (sink_n if at_toes else eps)                   #  arcs/planes coincide with the block's fillet and faces
+        h = H_n - zt                                                    #  otherwise, and the fuse drops the loft
         dip = FOOT_WEB * h if at_toes else 0.0
-        side = (x_out + w0 / 2) if at_toes else ra_n                    # outer faces: toe side or block side
+        side = (x_out + w0 / 2) if at_toes else ra_n - eps              # outer faces: toe side or block side
         r = 0.02 * w0 if at_toes else rf                                # top-corner rounding
-        pts = [V(-x_out if at_toes else -ra_n, y, H_n)]                 # start: outer toe's knife point / block's sole corner
-        pts.append(V(-side, y, zt + 0.35 * h))                          # up the lower slant to the vertical side
-        NA = 8
-        for j in range(NA):                                             # rounded top-left corner
-            a_ = math.pi / 2 * j / NA
-            pts.append(V(-side + r - r * math.cos(a_), y, zt + r - r * math.sin(a_)))
-        for k, xk in enumerate(xs):                                     # across the tops, dipping between toes
-            if k > 0:
-                pts.append(V(xk - w0 / 2, y, zt))
-            if k < 2:
-                pts.append(V(xk + w0 / 2, y, zt))
-                xa, xb = xk + w0 / 2, xs[k + 1] - w0 / 2
-                for j in range(1, 6):
-                    u = j / 6
-                    pts.append(V(xa + (xb - xa) * u, y, zt + dip * (1 - math.cos(2 * math.pi * u)) / 2))
-        for j in range(NA):                                             # rounded top-right corner
-            a_ = math.pi / 2 * (j + 1) / NA
-            pts.append(V(side - r + r * math.sin(a_), y, zt + r - r * math.cos(a_)))
-        pts.append(V(side, y, zt + 0.35 * h))
-        pts.append(V(x_out if at_toes else ra_n, y, H_n))               # down the inner toe's slant to the ground
-        pts.append(pts[0])                                              # back along the sole
-        return Part.makePolygon(pts)
-    # three sections: the block's section a little inside the block AND at its face (a straight prism,
-    # overlapping the block), then the toes' outline -- so the taper starts exactly at the face and
-    # the loft does not emerge from the block already narrowed (that left a step at the corners)
+        ground = x_out if at_toes else ra_n - eps                       # where the outer faces meet the sole
+        c45 = 1 - math.sqrt(0.5)
+        def web(xa, xb):
+            pts = [V(xa + (xb - xa) * j / 8, y, zt + dip * (1 - math.cos(2 * math.pi * j / 8)) / 2) for j in range(9)]
+            bs = Part.BSplineCurve(); bs.interpolate(pts)
+            return bs.toShape()
+        E = Part.LineSegment
+        edges = [E(V(-ground, y, H_n), V(-side, y, zt + 0.35 * h)).toShape(),
+                 E(V(-side, y, zt + 0.35 * h), V(-side, y, zt + r)).toShape(),
+                 Part.Arc(V(-side, y, zt + r), V(-side + r * c45, y, zt + r * c45), V(-side + r, y, zt)).toShape(),
+                 E(V(-side + r, y, zt), V(xs[0] + w0 / 2, y, zt)).toShape(),
+                 web(xs[0] + w0 / 2, xs[1] - w0 / 2),
+                 E(V(xs[1] - w0 / 2, y, zt), V(xs[1] + w0 / 2, y, zt)).toShape(),
+                 web(xs[1] + w0 / 2, xs[2] - w0 / 2),
+                 E(V(xs[2] - w0 / 2, y, zt), V(side - r, y, zt)).toShape(),
+                 Part.Arc(V(side - r, y, zt), V(side - r * c45, y, zt + r * c45), V(side, y, zt + r)).toShape(),
+                 E(V(side, y, zt + r), V(side, y, zt + 0.35 * h)).toShape(),
+                 E(V(side, y, zt + 0.35 * h), V(ground, y, H_n)).toShape(),
+                 E(V(ground, y, H_n), V(-ground, y, H_n)).toShape()]
+        return Part.Wire(edges)
     meta = Part.makeLoft([section(yb_n - 0.03 * FL_n, False), section(yb_n, False), section(yt_n, True)], True, True)
+    # round the edge where each web's top meets its front wall between the toes (the toes stay sharp):
+    # the two BSpline edges of the front face; fall back to unrounded if OCC refuses
+    web_edges = [e for e in meta.Edges
+                 if all(abs(vx.Point.y - yt_n) < 1e-6 for vx in e.Vertexes)
+                 and e.Curve.__class__.__name__ == "BSplineCurve"]
+    for k in (1.0, 0.6, 0.35):
+        try:
+            m2 = meta.makeFillet(WEB_FILLET * TW_n * k, web_edges)
+            if m2.isValid() and 0.9 * meta.Volume < m2.Volume <= meta.Volume * 1.001:
+                meta = m2; break
+        except Exception:
+            pass
+    else:
+        print(f"[mimic]   Foot: web front-edge fillet failed on {len(web_edges)} edges; left sharp")
     f.append(ctx.obj("Part::Feature", "Foot_Metatarsal", Shape=meta))
     body = ctx.fuse("Foot_All", f)
     socks, _ = ctx.peg_pattern("Foot_Sockets", face, face_n, "socket")

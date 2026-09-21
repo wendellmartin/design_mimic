@@ -235,6 +235,7 @@ def build_forearm_r(ctx):  return _seg(ctx, "ForearmR", "ForearmLength", "Forear
 def build_thigh_l(ctx):    return _seg(ctx, "ThighL", "ThighLength", "ThighDiameter", "HipBall", "KneeBall", style="b", medial_sx=-1)
 def build_thigh_r(ctx):    return _seg(ctx, "ThighR", "ThighLength", "ThighDiameter", "HipBall", "KneeBall", style="c")
 def build_upperarm_r(ctx): return _seg(ctx, "UpperArmR", "UpperArmLength", "UpperArmDiameter", "ShoulderBall", "ElbowBall", style="c")
+def build_shin_l(ctx):     return _seg(ctx, "ShinL", "ShinLength", "ShinDiameter", "KneeBall", "AnkleBall", style="c")
 def build_upperarm_l(ctx): return _seg(ctx, "UpperArmL", "UpperArmLength", "UpperArmDiameter", "ShoulderBall", "ElbowBall", style="b", medial_sx=-1)
 
 def build_hipball_l(ctx):
@@ -296,7 +297,7 @@ BUILDERS = [
     ("Head", build_head), ("Mouth", build_mouth), ("Neck", build_neck),
     ("ShoulderYoke", build_shoulderyoke), ("Spine", build_spine), ("SystemBox", build_systembox), ("Pelvis", build_pelvis),
     ("HipBallL", build_hipball_l), ("HipBallR", build_hipball_r), ("Thigh", build_thigh), ("ThighL", build_thigh_l), ("ThighR", build_thigh_r), ("KneeBall", build_kneeball),
-    ("Shin", build_shin), ("AnkleBall", build_ankleball), ("Foot", build_foot),
+    ("Shin", build_shin), ("ShinL", build_shin_l), ("AnkleBall", build_ankleball), ("Foot", build_foot),
     ("ShoulderBallL", build_shoulderball_l), ("ShoulderBallR", build_shoulderball_r), ("UpperArm", build_upperarm), ("UpperArmL", build_upperarm_l), ("UpperArmR", build_upperarm_r), ("ElbowBall", build_elbowball),
     ("Forearm", build_forearm), ("ForearmR", build_forearm_r), ("WristBall", build_wristball), ("HandL", build_hand_l), ("HandR", build_hand_r),
 ]

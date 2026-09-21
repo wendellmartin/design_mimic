@@ -12,6 +12,16 @@ ROT0 = App.Rotation()
 BIG = 5000.0   # slab size for splitting cuts, mm
 CREST_ROOT = 1.11   # shoulder crest (solid sector) outer radius, as a fraction of ball radius
 GEAR_TIP = 1.4834   # tip radius of the gear spikes on it (was 0.97 * 1.22 + 0.3 when the crest was 1.22 r)
+# limb segment style "b" (two-part piston), all x the segment diameter D unless noted
+PISTON_BARREL_R = 0.28   # the two thick "bones" (piston barrels) at the proximal end
+PISTON_SPREAD = 0.32     # barrel / rod centres sit at +/- this on local X (side by side, radius/ulna)
+PISTON_ROD_R = 0.14      # the thinner rods the barrels narrow to
+PISTON_STROKE = 1 / 3    # barrels run this fraction of the segment length before narrowing
+PISTON_GLAND = 0.15      # length of the taper from barrel to rod
+PISTON_BLOCK_R = 0.62    # proximal block (ties the barrels to the cup): radius ...
+PISTON_BLOCK_H = 0.25    # ... and height
+PISTON_HEAD_R = 0.5      # distal crosshead (ties the rods to the distal cup): radius ...
+PISTON_HEAD_H = 0.2      # ... and height
 
 # ============================================================== snap test
 def build_snaptest(ctx):
@@ -28,17 +38,35 @@ def build_snaptest(ctx):
 
 # ============================================================== generic limb strut
 def segment(ctx, name, length, length_n, dia, dia_n, prox_face, prox_face_n, dist_face, dist_face_n,
-            rods=True, collar=True, extras=None):
+            rods=True, collar=True, extras=None, style="a"):
     """A strut from z=0 (proximal face, dia prox_face) to z=length (distal face, dia dist_face).
-    `length` etc. are expression strings, `*_n` the scaled numeric values.  Splits itself to fit the build cube."""
+    `length` etc. are expression strings, `*_n` the scaled numeric values.  Splits itself to fit the build cube.
+    style "a": one central strut with two thin rods and a collar.  style "b": a two-part piston --
+    two thick barrels side by side from a proximal block, narrowing at PISTON_STROKE of the length
+    to two rods that run into a distal crosshead (see the PISTON_* knobs)."""
     cup = "0.35"                                    # cup height as a fraction of face diameter
     prox_cup_h = mul(prox_face, cup)
     dist_cup_h = mul(dist_face, cup)
     feats = []
     feats.append(ctx.cone(f"{name}_ProxCup", half(prox_face), half(dia), prox_cup_h))
-    feats.append(ctx.cylinder(f"{name}_Strut", half(dia), length))
     feats.append(ctx.cone(f"{name}_DistCup", half(dia), half(dist_face), dist_cup_h,
                           z=sub(length, dist_cup_h)))
+    if style == "b":
+        rods = collar = False
+        rb, rr = mul(dia, PISTON_BARREL_R), mul(dia, PISTON_ROD_R)
+        z_gland = mul(length, PISTON_STROKE)                                  # barrels end here, taper to the rods
+        gland_h = mul(dia, PISTON_GLAND)
+        head_h = mul(dia, PISTON_HEAD_H)
+        z_head = sub(sub(length, dist_cup_h), head_h)
+        feats.append(ctx.cylinder(f"{name}_Block", mul(dia, PISTON_BLOCK_R), mul(dia, PISTON_BLOCK_H), z=prox_cup_h))
+        feats.append(ctx.cylinder(f"{name}_Head", mul(dia, PISTON_HEAD_R), head_h, z=z_head))
+        for i, sx in enumerate((-1, 1)):
+            x = mul(dia, PISTON_SPREAD * sx)
+            feats.append(ctx.cylinder(f"{name}_Barrel{i+1}", rb, sub(z_gland, prox_cup_h), x=x, z=prox_cup_h))
+            feats.append(ctx.cone(f"{name}_Gland{i+1}", rb, rr, gland_h, x=x, z=z_gland))
+            feats.append(ctx.cylinder(f"{name}_PistonRod{i+1}", rr, sub(add(z_head, head_h), z_gland), x=x, z=z_gland))
+    else:
+        feats.append(ctx.cylinder(f"{name}_Strut", half(dia), length))
     if rods:
         rod_r = mul(dia, 0.15)
         rod_len = sub(length, add(prox_cup_h, dist_cup_h))
@@ -170,6 +198,7 @@ def build_thigh(ctx):    return _seg(ctx, "Thigh", "ThighLength", "ThighDiameter
 def build_shin(ctx):     return _seg(ctx, "Shin", "ShinLength", "ShinDiameter", "KneeBall", "AnkleBall")
 def build_upperarm(ctx): return _seg(ctx, "UpperArm", "UpperArmLength", "UpperArmDiameter", "ShoulderBall", "ElbowBall")
 def build_forearm(ctx):  return _seg(ctx, "Forearm", "ForearmLength", "ForearmDiameter", "ElbowBall", "WristBall")
+def build_forearm_r(ctx): return _seg(ctx, "ForearmR", "ForearmLength", "ForearmDiameter", "ElbowBall", "WristBall", style="b")   # style B trial
 
 def build_hipball_l(ctx):
     from mimic_geom import ball_bend
@@ -232,5 +261,5 @@ BUILDERS = [
     ("HipBallL", build_hipball_l), ("HipBallR", build_hipball_r), ("Thigh", build_thigh), ("KneeBall", build_kneeball),
     ("Shin", build_shin), ("AnkleBall", build_ankleball), ("Foot", build_foot),
     ("ShoulderBallL", build_shoulderball_l), ("ShoulderBallR", build_shoulderball_r), ("UpperArm", build_upperarm), ("ElbowBall", build_elbowball),
-    ("Forearm", build_forearm), ("WristBall", build_wristball), ("HandL", build_hand_l), ("HandR", build_hand_r),
+    ("Forearm", build_forearm), ("ForearmR", build_forearm_r), ("WristBall", build_wristball), ("HandL", build_hand_l), ("HandR", build_hand_r),
 ]

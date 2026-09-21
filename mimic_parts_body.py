@@ -76,6 +76,7 @@ HEAD_GUM_HEIGHT = 0.12          # denture platforms: band height (head radii)
 # mouth insert (gums + teeth + tongue), in gum widths unless noted
 MOUTH_CLEAR = 0.1               # clearance between the insert and the tray's lip (CageBar diameters)
 MOUTH_GUM_H = 0.9               # gum ridge height
+MOUTH_GUM_CREST = 0.6           # width of the ridge's flat top, x gum width (sides slope out to the full width at the base)
 MOUTH_TOOTH_BASE = 0.6          # crown heights in TEETH are measured from this height, not the gum top
 MOUTH_TOOTH_ROUND = 0.16        # corner radius of the tooth sections, x the smaller side
 MOUTH_FOSSA = 0.176             # molar central fossa radius, x the smaller top side
@@ -86,45 +87,55 @@ MOUTH_TONGUE_TOOTH = 2          # the tongue's highest point matches this tooth'
 MOUTH_TONGUE_LIFT_DEG = 10      # tongue pitched up so the tip lifts
 MOUTH_GROOVE_R = 0.3            # tongue groove: cylinder radius (gum widths) ...
 MOUTH_GROOVE_DEPTH = 0.1        # ... sunk this deep, so it meets the surface at a shallow angle
-MOUTH_TONGUE_TIP_MM = 0.1       # clearance between the tongue and the teeth's inner faces, front and sides (mm, absolute)
+MOUTH_TONGUE_TIP_MM = 0.1       # clearance between the tongue and the gum ridge's inner wall, front and sides (mm, absolute)
 MOUTH_TONGUE_BACK = 0.35        # ellipsoid centre this far from the back cut, as a fraction of the tongue length
 MOUTH_FLOOR_T = 0.25            # mouth-floor plate thickness (joins tongue to gums)
 MOUTH_ARCH_OVERSHOOT = 0.15     # the arch runs this far (gum widths) past the back plane, so the last molar is cut flush
 # lower arch from the midline back: (kind, human width mm, depth / gum width, crown height / gum width)
-TEETH = [("incisor", 5.4, 0.55, 1.2), ("incisor", 5.9, 0.6, 1.15), ("cuspid", 7.25, 0.68, 1.21),
-         ("bicuspid", 7.0, 0.85, 0.95), ("bicuspid", 7.1, 0.85, 0.9),
-         ("molar", 11.4, 0.95, 0.8), ("molar", 10.7, 0.95, 0.75)]
+# (depths leave a wall of gum on both sides of every socket: socket = depth x bulge, and it must
+#  stay clear of the ridge walls or the STL mesher fails on the near-tangent intersection)
+TEETH = [("incisor", 5.4, 0.45, 1.2), ("incisor", 5.9, 0.5, 1.15), ("cuspid", 7.25, 0.56, 1.21),
+         ("bicuspid", 7.0, 0.68, 0.95), ("bicuspid", 7.1, 0.68, 0.9),
+         ("molar", 11.4, 0.76, 0.8), ("molar", 10.7, 0.76, 0.75)]
 
 def _rrect(a, b, r, z):
-    """Closed rounded-rectangle wire a x b at height z, corner radius r (arc joins of an offset)."""
-    r = min(r, a * 0.45, b * 0.45)
+    """Closed rounded-rectangle wire a x b at height z, corner radius r (arc joins of an offset).
+    r is capped at a quarter of the shorter side: sections whose arcs nearly meet (stadiums) make
+    the smooth tooth loft wobble into itself."""
+    r = min(r, a * 0.25, b * 0.25)
     core = Part.makePolygon([V(-a / 2 + r, -b / 2 + r, z), V(a / 2 - r, -b / 2 + r, z), V(a / 2 - r, b / 2 - r, z),
                              V(-a / 2 + r, b / 2 - r, z), V(-a / 2 + r, -b / 2 + r, z)])
     return core.makeOffset2D(r, 0, False, False)
 
-def _tooth(w, d, h, wt, dt, bulge=1.0, rnd=None, top_r=0.3, grooves=(), fossa=False):
+def _tooth(w, d, h, wt, dt, bulge=1.0, rnd=None, top_r=0.3, grooves=(), fossa=False, ruled=False):
     """One tooth in its own frame: X along the arch, Y outward, Z up.  A smooth loft through
     rounded-rectangle sections (corner radius rnd x the smaller side): w x d at the base, bulging
     to bulge x that at mid crown, wt x dt at the top, whose rim is filleted top_r x min(wt, dt).
     Cusps are made by cutting: grooves = any of "x" (along the arch) and "y" (across it) are
-    cylinders sunk into the occlusal surface; fossa adds a spherical dimple at its centre."""
+    cylinders sunk into the occlusal surface; fossa adds a spherical dimple at its centre.
+    ruled=True lofts straight between sections: needed for the blade teeth, whose thin tops make
+    the smooth loft wobble into itself.
+    Returns (tooth, socket): the socket is the tooth's widest section extruded along its axis,
+    the tool that is subtracted from the gums (planar/cylindrical faces cut cleanly; the exact
+    tooth shape as a tool left the gums unmeshable)."""
     rnd = MOUTH_TOOTH_ROUND if rnd is None else rnd
     r = rnd * min(w, d)
-    secs = [_rrect(w, d, r, 0), _rrect(w * bulge, d * bulge, r, h * 0.55), _rrect(wt, dt, min(r, rnd * min(wt, dt) * 2), h)]
+    # (the crown bulges across the ridge only: along the arch the teeth are 92% of their pitch and a
+    #  bulge there makes neighbours -- and their sockets -- overlap by a sliver)
+    socket = Part.Face(_rrect(w, d * bulge, r, -h)).extrude(V(0, 0, 3 * h))
+    # the crown rounds over through the loft itself: a fourth, smaller section top_r of the way in
+    # from the rim, just above the top (a makeFillet on the rim left self-intersecting facets)
+    rt = min(r, rnd * min(wt, dt) * 2)
+    cap = max(0.0, 1 - top_r)
+    secs = [_rrect(w, d, r, 0), _rrect(w, d * bulge, r, h * 0.55),
+            _rrect(wt, dt, rt, h - top_r * min(wt, dt) * 0.5),
+            _rrect(wt * cap, dt * cap, rt * cap, h)]
     try:
-        sh = Part.makeLoft(secs, True, False)
+        sh = Part.makeLoft(secs, True, ruled)
         if sh.isNull() or not sh.isValid() or sh.Volume < 1e-9:
             raise ValueError("loft")
     except Exception:
         sh = Part.makeLoft([secs[0], secs[2]], True, True)
-    top = [e for e in sh.Edges if abs(e.BoundBox.ZMin - h) < 1e-6 and abs(e.BoundBox.ZMax - h) < 1e-6]
-    for k in (1.0, 0.7, 0.45):                                     # largest fillet OCC will accept
-        try:
-            f2 = sh.makeFillet(min(wt, dt) * top_r * k, top)
-            if f2.isValid() and f2.Volume > sh.Volume * 0.6:
-                sh = f2; break
-        except Exception:
-            pass
     rg = 0.13 * min(wt, dt); zg = h - rg * 0.55                    # groove radius / axis height (groove ~0.45 r deep)
     L = 3 * max(w, d)
     if "x" in grooves:
@@ -134,7 +145,7 @@ def _tooth(w, d, h, wt, dt, bulge=1.0, rnd=None, top_r=0.3, grooves=(), fossa=Fa
     if fossa:
         rf = MOUTH_FOSSA * min(wt, dt)
         sh = sh.cut(Part.makeSphere(rf, V(0, 0, h - rf * 0.35)))
-    return sh.removeSplitter() if (grooves or fossa) else sh
+    return (sh.removeSplitter() if (grooves or fossa) else sh), socket
 
 HEAD_GUM_THICK = 0.06           # ...and thickness
 HEAD_PUPIL = 0.14               # pupil dimple radius, in eye diameters
@@ -607,20 +618,18 @@ def build_mouth(ctx):
     y0 = dd["y_arm0"] + (dd["rw_n"] + clear) / Rn                  # arms start clear of the end-lips
     pts = [V(p.x * Rn, p.y * Rn, z_top) for p in _denture_upath(x_arm, y0, yp, zp, nose)]
     f = []
-    # gum ridge: an ellipse (gum width x 2*gum height) swept along the U with its centre on the base
-    # plane; the lower half is cut away below, leaving a domed ridge with a flat bottom
-    bs = Part.BSplineCurve(); bs.interpolate(pts)
-    spine = ctx.obj("Part::Feature", "Mouth_GumSpine"); spine.Shape = Part.Wire(bs.toShape()); spine.Visibility = False
-    d = bs.tangent(bs.FirstParameter)[0]
-    e1 = V(0, 0, 1).cross(d); e1.normalize(); e2 = d.cross(e1); e2.normalize()
-    # (Part.Ellipse wants major >= minor; when the ridge is taller than half its width the major
-    #  axis goes vertical, so the frame's X is swapped to e2 -- still right-handed: e2 x -e1 = d)
-    a1, a2 = (e1, e2) if gw / 2 >= gh else (e2, -e1)
-    ell = Part.Ellipse(V(0, 0, 0), max(gw / 2, gh), min(gw / 2, gh)).toShape()
-    ell.Placement = App.Placement(pts[0], App.Rotation(App.Matrix(a1.x, a2.x, d.x, 0, a1.y, a2.y, d.y, 0, a1.z, a2.z, d.z, 0, 0, 0, 0, 1)))
-    prof = ctx.obj("Part::Feature", "Mouth_GumProfile"); prof.Shape = Part.Wire([ell]); prof.Visibility = False
-    gum = ctx.obj("Part::Sweep", "Mouth_Gum")
-    gum.Sections = [prof]; gum.Spine = (spine, ["Edge1"]); gum.Solid = True; gum.Frenet = False
+    # gum ridge: a flat U band (outer and inner offsets of the centreline) lofted up to a narrower
+    # band at the crest -- a trapezoidal ridge with sloped sides and a flat top, so the gum stands the
+    # same height beside every tooth and ends square at the back.  (Swept and filleted ridges were
+    # tried first: the STL mesher could not stitch tooth sockets into their BSpline/fillet faces.)
+    def band(offu, z):
+        outer = [V(q.x * Rn, q.y * Rn, z) for q in _denture_upath(x_arm + offu, y0, yp + offu, zp, nose + offu)]
+        inner = [V(q.x * Rn, q.y * Rn, z) for q in _denture_upath(x_arm - offu, y0, yp - offu, zp, nose - offu)]
+        bo = Part.BSplineCurve(); bo.interpolate(outer)
+        bi = Part.BSplineCurve(); bi.interpolate(list(reversed(inner)))
+        return Part.Wire([bo.toShape(), Part.LineSegment(outer[-1], inner[-1]).toShape(), bi.toShape(), Part.LineSegment(inner[0], outer[0]).toShape()])
+    ridge = Part.makeLoft([band(gw / 2 / Rn, z_top - gw * 0.2), band(gw * MOUTH_GUM_CREST / 2 / Rn, z_top + gh)], True, True)
+    gum = ctx.obj("Part::Feature", "Mouth_Gum", Shape=ridge)
     f.append(gum)
     # teeth: the human lower arch from the midline back -- central and lateral incisors (blades),
     # cuspid (a blunt narrower blade), two bicuspids (one groove), two molars (two grooves and a
@@ -639,7 +648,7 @@ def build_mouth(ctx):
         return P, t
     rng = random.Random(11)
     teeth = []                                                       # numeric tooth solids (own part)
-    w_alloc, frames = [], []
+    w_alloc, frames, sockets = [], [], []
     z_base = z_top - gw * 0.1                                        # roots run to the base plane (trimmed below)
     z_ref = z_top + gw * MOUTH_TOOTH_BASE                            # crown heights count from here
     half = total / 2 + gw * MOUTH_ARCH_OVERSHOOT
@@ -656,23 +665,24 @@ def build_mouth(ctx):
             if up.z < 0:
                 t = -t; up = -up
             J = MOUTH_JITTER
-            tw = w * 0.92 * (1 + 0.06 * J * (rng.random() - 0.5))       # crown width (gap between teeth) and depth,
+            tw = w * 0.90 * (1 + 0.06 * J * (rng.random() - 0.5))       # crown width (gap between teeth) and depth,
             dpt = gw * d_f * (1 + 0.08 * J * (rng.random() - 0.5))      # each a few percent off nominal
             h = z_ref - z_base + gw * h_f * (0.9 + 0.2 * rng.random())   # height from the root plane to the crown top
             if kind == "incisor":
-                sh = _tooth(tw, dpt, h, tw * 1.05, dpt * 0.28, bulge=1.04, rnd=0.22, top_r=0.45)   # blunted blade
+                sh, sk = _tooth(tw, dpt, h, tw * 1.05, dpt * 0.28, bulge=1.04, rnd=0.22, top_r=0.45, ruled=True)   # blunted blade
             elif kind == "cuspid":
-                sh = _tooth(tw, dpt, h, tw * 0.55, dpt * 0.34, bulge=1.06, rnd=0.22, top_r=0.45)   # blunt: a normal human jaw, not fangs
+                sh, sk = _tooth(tw, dpt, h, tw * 0.55, dpt * 0.34, bulge=1.06, rnd=0.22, top_r=0.45, ruled=True)   # blunt: a normal human jaw, not fangs
             elif kind == "bicuspid":
-                sh = _tooth(tw, dpt, h, tw * 0.9, dpt * 0.9, bulge=1.1, rnd=0.25, top_r=0.4, grooves=("x",))
+                sh, sk = _tooth(tw, dpt, h, tw * 0.9, dpt * 0.9, bulge=1.1, rnd=0.25, top_r=0.4, grooves=("x",))
             else:
-                sh = _tooth(tw, dpt, h, tw * 0.95, dpt * 0.95, bulge=1.1, rnd=0.3, top_r=0.45, grooves=("x", "y"), fossa=True)
+                sh, sk = _tooth(tw, dpt, h, tw * 0.95, dpt * 0.95, bulge=1.1, rnd=0.3, top_r=0.45, grooves=("x", "y"), fossa=True)
             frame = App.Rotation(App.Matrix(t.x, out.x, up.x, 0, t.y, out.y, up.y, 0, t.z, out.z, up.z, 0, 0, 0, 0, 1))
             lean = App.Rotation(t, -(4 + 8 * rng.random()))         # tops tilt outward
-            yaw = App.Rotation(up, 5 * J * (rng.random() - 0.5) * 2)   # a few degrees of twist about the vertical
-            shift = out * (gw * 0.05 * J * (rng.random() - 0.5) * 2)  # a little in or out of the ridge line
+            yaw = App.Rotation(up, 3 * J * (rng.random() - 0.5) * 2)   # a few degrees of twist about the vertical
+            shift = out * (gw * 0.03 * J * (rng.random() - 0.5) * 2)  # a little in or out of the ridge line
             sh.Placement = App.Placement(V(P.x, P.y, z_base) + shift, lean * yaw * frame)
-            teeth.append(sh); frames.append((V(P.x, P.y, z_base), t, out))
+            sk.Placement = sh.Placement
+            teeth.append(sh); sockets.append(sk); frames.append((V(P.x, P.y, z_base), t, out))
     # mouth floor and tongue.  The floor is a thin plate filling the U between the gums (it is what
     # ties the tongue to the gums); the tongue is a flattened ellipsoid in front, full-width slab
     # behind, reaching MOUTH_TONGUE_TIP_MM short of the teeth's inner faces at the front and sides,
@@ -682,18 +692,20 @@ def build_mouth(ctx):
     y_back = y0 * Rn
     tf = gw * MOUTH_FLOOR_T
     floor_pts = [V(p.x * Rn, p.y * Rn, z_top) for p in _denture_upath(x_arm - gw * 0.35 / Rn, y0, yp - gw * 0.35 / Rn, zp, nose - gw * 0.35 / Rn)]
-    floor_w = Part.Wire(Part.makePolygon(floor_pts + [floor_pts[0]]))
+    bf = Part.BSplineCurve(); bf.interpolate(floor_pts)               # smooth edge (a polygon edge left slivers against the ridge)
+    floor_w = Part.Wire([bf.toShape(), Part.LineSegment(floor_pts[-1], floor_pts[0]).toShape()])
     floor = ctx.obj("Part::Feature", "Mouth_Floor", Shape=Part.Face(floor_w).extrude(V(0, 0, tf)))
     floor.Placement = App.Placement(V(0, 0, -gw * 0.1), App.Rotation())   # starts below the base plane, trimmed
     f.append(floor)
     lift_r = math.radians(MOUTH_TONGUE_LIFT_DEG)
     z_goal = gw * (MOUTH_TOOTH_BASE + TEETH[MOUTH_TONGUE_TOOTH][3])           # crown top of the reference tooth, above the base
-    # front: the tip stops MOUTH_TONGUE_TIP_MM short of the central incisors' inner (lingual) faces,
-    # which sit half the gum width less half the incisor depth inside the gum's inner face
-    y_tip = y_front + gw * (0.5 - TEETH[0][2] / 2) - MOUTH_TONGUE_TIP_MM
+    # the tongue fits to the gum ridge's inner wall, MOUTH_TONGUE_TIP_MM off it, front and sides
+    # (the teeth are set into the ridge, so the wall is what the tongue meets; running the tongue on
+    # into the ridge to reach the teeth put three surfaces through one point and broke the mesh)
+    y_tip = y_front - MOUTH_TONGUE_TIP_MM
     L = y_tip - y_back
     yc = y_back + L * MOUTH_TONGUE_BACK
-    rx = x_in + gw * (0.5 - TEETH[-1][2] / 2) - MOUTH_TONGUE_TIP_MM       # out to the molars' lingual faces
+    rx = x_in - MOUTH_TONGUE_TIP_MM
     ry = (y_tip - yc) / math.cos(lift_r)
     # thickness: the tilted ellipsoid peaks at 0.15 tt + sqrt(tt^2 cos^2 + ry^2 sin^2) above the base -> iterate
     tt = z_goal
@@ -737,12 +749,13 @@ def build_mouth(ctx):
     back_box = Part.makeBox(big, big, big, V(-big / 2, y_cut - big, z_top - big / 2))
     cut_teeth = [t.cut(base_box).cut(back_box) for t in teeth]
     keep = [i for i, t in enumerate(cut_teeth) if not t.isNull() and t.Volume > 1e-9]
+    sockets = [sockets[i] for i in keep]
     teeth = [cut_teeth[i] for i in keep]; frames = [frames[i] for i in keep]
     teeth_comp = Part.makeCompound(teeth)
-    # sockets: subtract the teeth one at a time (a compound tool is less reliable)
+    # sockets: subtract each tooth's silhouette prism (see _tooth), one at a time
     soft_sh = soft.Shape
     gums_sh = soft_sh
-    for t in teeth:
+    for t in sockets:
         g2 = gums_sh.cut(t)
         if not g2.isNull() and g2.isValid() and g2.Volume < gums_sh.Volume:
             gums_sh = g2

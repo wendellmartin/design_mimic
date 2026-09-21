@@ -27,8 +27,8 @@ PISTON_HEAD_R = 0.5      # distal crosshead (ties the rods to the distal cup): r
 PISTON_HEAD_H = 0.2      # ... and height
 # limb segment style "c" (variegated pipe with rounded bumps), x the segment diameter D
 BUMP_CORE_R = 0.36       # the pipe itself
-BUMP_MAJOR_R = 0.34      # bump ring centreline radius (ring tube is centred here)
-BUMP_MINOR_R = (0.16, 0.10)   # ring tube radii, alternating big / small along the pipe
+BUMP_MAJOR_R = 0.32      # bump ring centreline radius (ring tube is centred here)
+BUMP_MINOR_R = (0.18,)   # ring tube radii, cycled along the pipe (one size now: he liked the big ones)
 BUMP_PITCH = 0.4         # spacing between rings
 
 # ============================================================== snap test
@@ -232,7 +232,7 @@ def build_forearm(ctx):  return _seg(ctx, "Forearm", "ForearmLength", "ForearmDi
 # style B segments (sided files).  The limb frame keeps local Y forward, so local +X points to the
 # midline on the right limbs and away from it on the left: medial_sx = +1 right, -1 left.
 def build_forearm_r(ctx):  return _seg(ctx, "ForearmR", "ForearmLength", "ForearmDiameter", "ElbowBall", "WristBall", style="b", medial_sx=1)
-def build_thigh_l(ctx):    return _seg(ctx, "ThighL", "ThighLength", "ThighDiameter", "HipBall", "KneeBall", style="c")
+def build_thigh_l(ctx):    return _seg(ctx, "ThighL", "ThighLength", "ThighDiameter", "HipBall", "KneeBall", style="b", medial_sx=-1)
 def build_thigh_r(ctx):    return _seg(ctx, "ThighR", "ThighLength", "ThighDiameter", "HipBall", "KneeBall", style="c")
 def build_upperarm_r(ctx): return _seg(ctx, "UpperArmR", "UpperArmLength", "UpperArmDiameter", "ShoulderBall", "ElbowBall", style="c")
 def build_upperarm_l(ctx): return _seg(ctx, "UpperArmL", "UpperArmLength", "UpperArmDiameter", "ShoulderBall", "ElbowBall", style="b", medial_sx=-1)

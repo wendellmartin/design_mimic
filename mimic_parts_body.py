@@ -91,9 +91,11 @@ MOUTH_TONGUE_BACK = 0.35        # ellipsoid centre this far from the back cut, a
 MOUTH_FLOOR_T = 0.25            # mouth-floor plate thickness (joins tongue to gums)
 MOUTH_ARCH_OVERSHOOT = 0.15     # the arch runs this far (gum widths) past the back plane, so the last molar is cut flush
 # lower arch from the midline back: (kind, human width mm, depth / gum width, crown height / gum width)
+# (depths are kept well inside the gum width so the ridge's hump stays standing beside every tooth,
+#  molars included; the socket takes the hump's crest, and what shows is the flank outside it)
 TEETH = [("incisor", 5.4, 0.55, 1.2), ("incisor", 5.9, 0.6, 1.15), ("cuspid", 7.25, 0.68, 1.21),
-         ("bicuspid", 7.0, 0.85, 0.95), ("bicuspid", 7.1, 0.85, 0.9),
-         ("molar", 11.4, 0.95, 0.8), ("molar", 10.7, 0.95, 0.75)]
+         ("bicuspid", 7.0, 0.7, 0.95), ("bicuspid", 7.1, 0.7, 0.9),
+         ("molar", 11.4, 0.75, 0.8), ("molar", 10.7, 0.75, 0.75)]
 
 def _rrect(a, b, r, z):
     """Closed rounded-rectangle wire a x b at height z, corner radius r (arc joins of an offset)."""

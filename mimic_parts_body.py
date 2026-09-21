@@ -21,6 +21,7 @@ TOE_RISE = 0.35     # how high the bottom edge arcs above the sole, fraction of 
 TOE_FAN_DEG = 0.0   # outer toes splay this much (0 = parallel)
 FOOT_ANKLE_W = 0.76 # foot width from the heel to the front face, fraction of FootWidth (parallel sides)
 FOOT_FILLET = 0.06  # fillet radius on the foot's top edges, fraction of FootWidth
+TOE_FILLET = 0.03   # rounding of the toes' top corners (built into the blade sections), fraction of FootWidth
 ROT_PX = App.Rotation(V(0, 1, 0), 90)     # local +Z -> +X
 ROT_NX = App.Rotation(V(0, 1, 0), -90)    # local +Z -> -X
 ROT_PY = App.Rotation(V(1, 0, 0), -90)    # local +Z -> +Y
@@ -1059,11 +1060,13 @@ def _wedge(ctx, name, x, y, z, x2, z2, rot=None):
         w.Placement = App.Placement(V(0, 0, 0), rot)
     return w
 
-def _blade_toe(ctx, name, x0, yaw, y_face, y_root, y_tip, H, instep, w0, apex, rise, sink):
+def _blade_toe(ctx, name, x0, yaw, y_face, y_root, y_tip, H, instep, w0, apex, rise, sink, round_r=0.0):
     """One toe as a smooth lofted blade (numeric).  Knife section: flat top, short vertical sides,
     sharp bottom edge.  Bottom edge lies on the sole plane inside the foot, leaves it at the front face,
     arcs up to `rise` at `apex` (fraction of the exposed length) and comes down to a point at y_tip.
-    Top edge follows the instep surface (sunk by `sink`) and converges to the same point."""
+    Top edge follows the instep surface (sunk by `sink`) and converges to the same point.
+    round_r > 0 rounds the two top corners of every section with quarter arcs (radius shrinking
+    with the section), so the toe's top edges match the foot's fillet; the knife edge stays sharp."""
     n_in, n_out = 3, 14
     ys = [y_root + (y_face - y_root) * i / n_in for i in range(n_in)] +          [y_face + (y_tip - y_face) * i / n_out for i in range(n_out + 1)]
     wires = []
@@ -1086,10 +1089,25 @@ def _blade_toe(ctx, name, x0, yaw, y_face, y_root, y_tip, H, instep, w0, apex, r
         w = w0 * (1 - v) ** 0.7
         w = max(w, w0 * 0.03); h = max(h, w0 * 0.03)
         yl = y - y_face                                              # local: yaw pivots at the front face
-        pts = [V(-w / 2, yl, zt), V(w / 2, yl, zt), V(w / 2, yl, zt + 0.35 * h), V(0, yl, zt + h),
-               V(-w / 2, yl, zt + 0.35 * h), V(-w / 2, yl, zt)]
-        wires.append(Part.makePolygon(pts))
+        r = min(round_r, 0.4 * w, 0.8 * 0.35 * h)
+        if r > 1e-4:
+            c = 1 - math.sqrt(0.5)                                   # arc midpoint offset (45 deg point)
+            edges = [Part.LineSegment(V(-w / 2 + r, yl, zt), V(w / 2 - r, yl, zt)).toShape(),
+                     Part.Arc(V(w / 2 - r, yl, zt), V(w / 2 - r * c, yl, zt + r * c), V(w / 2, yl, zt + r)).toShape(),
+                     Part.LineSegment(V(w / 2, yl, zt + r), V(w / 2, yl, zt + 0.35 * h)).toShape(),
+                     Part.LineSegment(V(w / 2, yl, zt + 0.35 * h), V(0, yl, zt + h)).toShape(),
+                     Part.LineSegment(V(0, yl, zt + h), V(-w / 2, yl, zt + 0.35 * h)).toShape(),
+                     Part.LineSegment(V(-w / 2, yl, zt + 0.35 * h), V(-w / 2, yl, zt + r)).toShape(),
+                     Part.Arc(V(-w / 2, yl, zt + r), V(-w / 2 + r * c, yl, zt + r * c), V(-w / 2 + r, yl, zt)).toShape()]
+            wires.append(Part.Wire(edges))
+        else:
+            pts = [V(-w / 2, yl, zt), V(w / 2, yl, zt), V(w / 2, yl, zt + 0.35 * h), V(0, yl, zt + h),
+                   V(-w / 2, yl, zt + 0.35 * h), V(-w / 2, yl, zt)]
+            wires.append(Part.makePolygon(pts))
     shape = Part.makeLoft(wires, True, False)
+    if round_r > 0 and (shape.isNull() or not shape.isValid() or shape.Volume < 1e-9):
+        print(f"[mimic]   {name}: rounded blade loft failed; sharp sections")
+        return _blade_toe(ctx, name, x0, yaw, y_face, y_root, y_tip, H, instep, w0, apex, rise, sink, 0.0)
     m = App.Placement(V(x0, y_face, 0), App.Rotation(V(0, 0, 1), yaw)).toMatrix()
     shape.transformShape(m)
     o = ctx.obj("Part::Feature", name)
@@ -1121,22 +1139,41 @@ def build_foot(ctx):
           ctx.box("Foot_PrintMid", mul(ra, 2), sub(yt, yh), H, x=neg(ra), y=yh)]
     print_ = ctx.fuse("Foot_Print", fp)
     body = ctx.common("Foot_Shaped", body, print_)
-    # fillet every edge except those lying in the sole plane
     ctx.doc.recompute()
     H_n = ctx.s("FootHeight")
-    edges = [(i + 1, FOOT_FILLET * ctx.s("FootWidth"), FOOT_FILLET * ctx.s("FootWidth"))
-             for i, e in enumerate(body.Shape.Edges)
-             if not all(abs(vx.Point.z - H_n) < 0.01 for vx in e.Vertexes)]
-    fil = ctx.obj("Part::Fillet", "Foot_Fillet")
-    fil.Base = body; fil.Edges = edges
-    body.Visibility = False
-    ctx.doc.recompute()
-    if fil.Shape.isNull() or not fil.Shape.isValid() or fil.Shape.Volume < body.Shape.Volume * 0.9:
-        print("[mimic]   Foot: fillet failed, leaving edges sharp")
-        ctx.doc.removeObject(fil.Name)
-        body.Visibility = True
-    else:
-        body = fil
+    yt_n0 = ctx.s("FootLength") * (1 - FOOT_HEEL) - ctx.s("FootWidth") / 2
+    top_n0 = H_n - (H_n - face_n * 0.25) * FOOT_ANKLE_H
+
+    def fillet(base, name, with_toes):
+        """Fillet the top edges: not the sole plane, not the front face (the toes continue the sides
+        and top straight out of it), and, when the toes are on, their edges at TOE_FILLET.  Returns
+        the fillet object or None if OCC will not do it."""
+        rf, rt_ = FOOT_FILLET * ctx.s("FootWidth"), TOE_FILLET * ctx.s("FootWidth")
+        edges = []
+        for i, e in enumerate(base.Shape.Edges):
+            vs = e.Vertexes
+            if all(abs(vx.Point.z - H_n) < 0.01 for vx in vs):
+                continue                                    # in the sole plane (incl. the toe tips' bottom edge)
+            if all(abs(vx.Point.y - yt_n0) < 0.01 for vx in vs):
+                continue                                    # in the front face
+            if any(vx.Point.z < top_n0 - 0.01 for vx in vs):
+                continue                                    # ankle cup / post (above the instep; +Z is down)
+            in_toe = any(vx.Point.y > yt_n0 + 0.01 for vx in vs)
+            if in_toe and not with_toes:
+                continue
+            if in_toe and any(abs(vx.Point.z - H_n) < 0.01 for vx in vs):
+                continue                                    # edges running into a toe tip on the floor
+            r = rt_ if in_toe else rf
+            edges.append((i + 1, r, r))
+        fil = ctx.obj("Part::Fillet", name)
+        fil.Base = base; fil.Edges = edges
+        base.Visibility = False
+        ctx.doc.recompute()
+        if fil.Shape.isNull() or not fil.Shape.isValid() or fil.Shape.Volume < base.Shape.Volume * 0.9:
+            ctx.doc.removeObject(fil.Name)
+            base.Visibility = True
+            return None
+        return fil
     f = [body, ctx.cone("Foot_Cup", half(face), mul(TW, 0.9), mul(face, 0.35)),
          # ankle post from the cup down into the instep
          ctx.cylinder("Foot_Post", mul(TW, 0.9), sub(add(top, mul(H, 0.05)), mul(face, 0.3)), z=mul(face, 0.3))]
@@ -1148,8 +1185,22 @@ def build_foot(ctx):
     x_out = FW_n * FOOT_ANKLE_W / 2 - w0 / 2     # outer toes' outer faces flush with the foot's sides
     for k, (x0, yaw) in enumerate(((-x_out, TOE_FAN_DEG), (0.0, 0.0), (x_out, -TOE_FAN_DEG))):
         f.append(_blade_toe(ctx, f"Foot_Toe{k+1}", x0, yaw, yt_n, yt_n - 0.15 * FL_n, yt_n + TOE_REACH * FL_n,
-                            H_n, instep, w0, TOE_APEX, TOE_RISE * H_n, 0.01 * FW_n))
+                            H_n, instep, w0, TOE_APEX, TOE_RISE * H_n, 0.01 * FW_n, round_r=TOE_FILLET * FW_n))
+    shaped = body
     body = ctx.fuse("Foot_All", f)
+    # fillet foot and toes together (consistent rounding, smooth side-to-toe merge); if OCC refuses,
+    # fillet the foot alone and fuse the toes on afterwards
+    fil = fillet(body, "Foot_Fillet", with_toes=True)
+    if fil is None:
+        print("[mimic]   Foot: fillet with toes failed; filleting the foot alone")
+        fil = fillet(shaped, "Foot_FilletBody", with_toes=False)
+        if fil is None:
+            print("[mimic]   Foot: fillet failed, leaving edges sharp")
+        else:
+            f[0] = fil
+            body = ctx.fuse("Foot_All2", f)
+    else:
+        body = fil
     socks, _ = ctx.peg_pattern("Foot_Sockets", face, face_n, "socket")
     foot = ctx.cut("Foot", body, socks)
     foot.Label = "Foot"

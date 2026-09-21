@@ -1083,12 +1083,15 @@ def _blade_toe(ctx, name, x0, yaw, y_face, y_root, y_tip, H, instep, w0, apex, r
         zb = H - rise * bump
         h_face = H - instep(y_face) - sink
         if v <= 0:
-            zb = H - sink * max(0.0, (y_block - y) / (y_block - y_root))   # buried part: just under the sole plane
-            zt = instep(y) + sink                                    # inside: just under the instep
+            # buried stub: shrunk inward by `sink` on every side (the metatarsal's prong has this exact
+            # section, and coincident faces break the fuse), reaching the full section at the face
+            b = max(0.0, (y_block - y) / (y_block - y_root))
+            zb = H - sink * b
+            zt = instep(y) + sink + sink * b
         else:
             zt = zb - h_face * (1 - v ** 1.3)                        # height fades to a point at the tip
         h = max(zb - zt, 0.0)
-        w = w0 * (1 - v) ** 0.7
+        w = w0 * (1 - v) ** 0.7 - (2 * sink * b if v <= 0 else 0.0)
         w = max(w, w0 * 0.03); h = max(h, w0 * 0.03)
         yl = y - y_face                                              # local: yaw pivots at the front face
         pts = [V(-w / 2, yl, zt), V(w / 2, yl, zt), V(w / 2, yl, zt + 0.35 * h), V(0, yl, zt + h),
@@ -1106,9 +1109,9 @@ def build_foot(ctx):
     of FootLength from the heel; the instep slopes down from the ankle to the toe and heel; the
     footprint is a rounded heel and parallel sides (FOOT_ANKLE_W wide).  The solid block ends
     FOOT_BLOCK ahead of the ankle (top edges filleted, front face sharp); the metatarsal is a ruled
-    loft from the block's section to the toes' combined section at the toe root -- flat sole, sides
-    continuing the block's, top dipping smoothly between the toes -- and from there the three blade
-    toes curve down to points on the sole plane."""
+    loft from the block's section to the toes' combined root section (outer sides up from the
+    ground, tops with a web dipping between the toes, sole across) and the three blade toes start on
+    that face and curve down to points on the sole plane."""
     face, face_n = _face(ctx, "AnkleBall")
     H, FL, FW, TW = S("FootHeight"), S("FootLength"), S("FootWidth"), S("ToeWidth")
     # instep top at the ankle: FOOT_ANKLE_H of the way from the sole up to just under the ankle face
@@ -1157,38 +1160,47 @@ def build_foot(ctx):
     w0 = TOE_BLADE_W * TW_n
     x_out = FW_n * FOOT_ANKLE_W / 2 - w0 / 2     # outer toes' outer faces flush with the foot's sides
     for k, (x0, yaw) in enumerate(((-x_out, TOE_FAN_DEG), (0.0, 0.0), (x_out, -TOE_FAN_DEG))):
-        f.append(_blade_toe(ctx, f"Foot_Toe{k+1}", x0, yaw, yt_n, yt_n - 0.15 * FL_n, yt_n + TOE_REACH * FL_n,
+        # the toe starts ON the metatarsal's front face (a hair inside, so the fuse takes), no buried run
+        f.append(_blade_toe(ctx, f"Foot_Toe{k+1}", x0, yaw, yt_n, yt_n - 0.02 * FL_n, yt_n + TOE_REACH * FL_n,
                             H_n, instep, w0, TOE_APEX, TOE_RISE * H_n, 0.01 * FW_n))
-    # metatarsal: ruled loft from the block's section (just inside its front face) to the toes'
-    # combined section at the toe root.  Same point list in both: flat sole, outer sides with the
-    # block's rounding on the top corners, top running across the toes with a cosine dip between
-    # them (zero at the block, FOOT_WEB of the toe height at the root).
+    # metatarsal: one ruled loft from the block's section (just inside its front face) to the toes'
+    # combined root section: the outer toe's outer side up from the ground, across the tops with a
+    # cosine web dipping between the toes, down the inner toe's side, and back along the sole.
+    # The block section is the same point list pushed out to the block's rectangle (sides at +/-ra,
+    # top flat on the instep, rounded top corners at the block's fillet radius), so the loft is
+    # smooth with no extra edges and the toes carry straight on from its front face.
     ra_n = FW_n * FOOT_ANKLE_W / 2
     rf = FOOT_FILLET * FW_n
     sink_n = 0.01 * FW_n
-    def section(y, dip):
-        zt = instep(y) + (sink_n if dip > 0 else 0.0)
-        depth = dip * (H_n - zt)
-        top = []                                                        # (x, z) along the top, left to right
-        xs = [-x_out, 0.0, x_out]
-        for k, xk in enumerate(xs):
-            top.append((xk - w0 / 2, zt)); top.append((xk + w0 / 2, zt))
-            if k < 2:                                                   # dip to the next toe
+    xs = [-x_out, 0.0, x_out]
+    def section(y, at_toes):
+        zt = instep(y) + sink_n                                         # toe top at the root (see _blade_toe, v = 0)
+        h = H_n - zt                                                    # toe height there
+        dip = FOOT_WEB * h if at_toes else 0.0
+        side = (x_out + w0 / 2) if at_toes else ra_n                    # outer faces: toe side or block side
+        r = 0.02 * w0 if at_toes else rf                                # top-corner rounding
+        pts = [V(-x_out if at_toes else -ra_n, y, H_n)]                 # start: outer toe's knife point / block's sole corner
+        pts.append(V(-side, y, zt + 0.35 * h))                          # up the lower slant to the vertical side
+        for j in range(4):                                              # rounded top-left corner
+            a_ = math.pi / 2 * j / 4
+            pts.append(V(-side + r - r * math.cos(a_), y, zt + r - r * math.sin(a_)))
+        for k, xk in enumerate(xs):                                     # across the tops, dipping between toes
+            if k > 0:
+                pts.append(V(xk - w0 / 2, y, zt))
+            if k < 2:
+                pts.append(V(xk + w0 / 2, y, zt))
                 xa, xb = xk + w0 / 2, xs[k + 1] - w0 / 2
                 for j in range(1, 6):
                     u = j / 6
-                    top.append((xa + (xb - xa) * u, zt + depth * (1 - math.cos(2 * math.pi * u)) / 2))
-        pts = [V(-ra_n, y, H_n)]
-        for j in range(4):                                              # rounded top-left corner (block fillet radius)
-            a = math.pi / 2 * j / 4
-            pts.append(V(-ra_n + rf - rf * math.cos(a), y, zt + rf - rf * math.sin(a)))
-        pts += [V(x, y, z) for x, z in top if -ra_n + rf <= x <= ra_n - rf]
+                    pts.append(V(xa + (xb - xa) * u, y, zt + dip * (1 - math.cos(2 * math.pi * u)) / 2))
         for j in range(4):                                              # rounded top-right corner
-            a = math.pi / 2 * (j + 1) / 4
-            pts.append(V(ra_n - rf + rf * math.sin(a), y, zt + rf - rf * math.cos(a)))
-        pts += [V(ra_n, y, H_n), V(-ra_n, y, H_n)]
+            a_ = math.pi / 2 * (j + 1) / 4
+            pts.append(V(side - r + r * math.sin(a_), y, zt + r - r * math.cos(a_)))
+        pts.append(V(side, y, zt + 0.35 * h))
+        pts.append(V(x_out if at_toes else ra_n, y, H_n))               # down the inner toe's slant to the ground
+        pts.append(pts[0])                                              # back along the sole
         return Part.makePolygon(pts)
-    meta = Part.makeLoft([section(yb_n - 0.03 * FL_n, 0.0), section(yt_n, FOOT_WEB)], True, True)
+    meta = Part.makeLoft([section(yb_n - 0.03 * FL_n, False), section(yt_n, True)], True, True)
     f.append(ctx.obj("Part::Feature", "Foot_Metatarsal", Shape=meta))
     body = ctx.fuse("Foot_All", f)
     socks, _ = ctx.peg_pattern("Foot_Sockets", face, face_n, "socket")

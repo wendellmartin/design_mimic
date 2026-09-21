@@ -18,7 +18,8 @@ TOE_REACH = 0.6     # toe length beyond the front face, fraction of FootLength
 TOE_BLADE_W = 0.5   # toe width (x) at the root, fraction of ToeWidth
 TOE_APEX = 0.4      # where the bottom edge peaks, fraction of the exposed toe length
 TOE_RISE = 0.35     # how high the bottom edge arcs above the sole, fraction of FootHeight
-TOE_FAN_DEG = 12.0  # outer toes splay this much
+TOE_FAN_DEG = 0.0   # outer toes splay this much (0 = parallel)
+FOOT_ANKLE_W = 0.76 # foot width from the heel to the front face, fraction of FootWidth (parallel sides)
 FOOT_FILLET = 0.06  # fillet radius on the foot's top edges, fraction of FootWidth
 ROT_PX = App.Rotation(V(0, 1, 0), 90)     # local +Z -> +X
 ROT_NX = App.Rotation(V(0, 1, 0), -90)    # local +Z -> -X
@@ -1098,30 +1099,28 @@ def _blade_toe(ctx, name, x0, yaw, y_face, y_root, y_tip, H, instep, w0, apex, r
 def build_foot(ctx):
     """Origin at the ankle face, local +Z = down, +Y = forward.  A flat-soled foot: the ankle sits 30%
     of FootLength from the heel; the instep slopes down from the ankle to the toe and heel; the
-    footprint is rounded at the heel and truncated flat at its widest point, where three blade toes
-    emerge and arc down to points on the sole plane.  Top edges filleted."""
+    footprint is a rounded heel and parallel sides (FOOT_ANKLE_W wide) ending in a flat front face,
+    where three parallel blade toes emerge and arc down to points on the sole plane.  Top edges
+    filleted."""
     face, face_n = _face(ctx, "AnkleBall")
     H, FL, FW, TW = S("FootHeight"), S("FootLength"), S("FootWidth"), S("ToeWidth")
     # instep top at the ankle: FOOT_ANKLE_H of the way from the sole up to just under the ankle face
     top = sub(H, mul(sub(H, mul(face, 0.25)), FOOT_ANKLE_H))
     heel, toe = mul(FL, FOOT_HEEL), sub(FL, mul(FL, FOOT_HEEL))
-    rh, rt = mul(FW, 0.35), half(FW)             # heel / toe rounding radii
+    ra = mul(FW, FOOT_ANKLE_W / 2)               # half width of the foot (heel rounding radius too)
+    rt = half(FW)                                # sets where the front face is (unchanged from the tapered foot)
     # instep: two wedges meeting at the ankle, sloping down to sole height at each end
     sole_top_t, sole_top_h = mul(H, 0.65), mul(H, 0.55)
     f = [_wedge(ctx, "Foot_Instep", (neg(FW), FW), ("0 mm", toe), (top, H), (neg(FW), FW), (sole_top_t, H)),
          _wedge(ctx, "Foot_Heel", (neg(FW), FW), ("0 mm", heel), (top, H), (neg(FW), FW), (sole_top_h, H),
                 rot=App.Rotation(V(0, 0, 1), 180))]
     body = ctx.fuse("Foot_Body", f)
-    # footprint: rounded heel and toe joined by a tapered slab, extruded through the full height
-    yh, yt = neg(sub(heel, rh)), sub(toe, rt)
-    fp = [ctx.cylinder("Foot_PrintHeel", rh, H, y=yh),
-          ctx.cylinder("Foot_PrintToe", rt, H, y=yt),
-          _wedge(ctx, "Foot_PrintMid", (neg(rh), rh), (yh, yt), ("0 mm", H), (neg(rt), rt), ("0 mm", H))]
+    # footprint: a rounded heel and a constant-width slab to the front face, extruded through the full height
+    yh, yt = neg(sub(heel, ra)), sub(toe, rt)
+    fp = [ctx.cylinder("Foot_PrintHeel", ra, H, y=yh),
+          ctx.box("Foot_PrintMid", mul(ra, 2), sub(yt, yh), H, x=neg(ra), y=yh)]
     print_ = ctx.fuse("Foot_Print", fp)
     body = ctx.common("Foot_Shaped", body, print_)
-    # truncate at the widest point (the toe circle's centre line) to get a flat front face
-    front = ctx.box("Foot_Front", BIG, BIG, BIG, x=-BIG / 2, y=yt, z=-BIG / 2)
-    body = ctx.cut("Foot_Trunc", body, front)
     # fillet every edge except those lying in the sole plane
     ctx.doc.recompute()
     H_n = ctx.s("FootHeight")
@@ -1146,7 +1145,7 @@ def build_foot(ctx):
     top_n, sole_t_n = H_n - (H_n - face_n * 0.25) * FOOT_ANKLE_H, H_n * 0.65
     instep = lambda y: top_n + (sole_t_n - top_n) * y / toe_n
     w0 = TOE_BLADE_W * TW_n
-    x_out = FW_n / 2 - w0 / 2                    # outer toes' outer faces flush with the foot's sides
+    x_out = FW_n * FOOT_ANKLE_W / 2 - w0 / 2     # outer toes' outer faces flush with the foot's sides
     for k, (x0, yaw) in enumerate(((-x_out, TOE_FAN_DEG), (0.0, 0.0), (x_out, -TOE_FAN_DEG))):
         f.append(_blade_toe(ctx, f"Foot_Toe{k+1}", x0, yaw, yt_n, yt_n - 0.15 * FL_n, yt_n + TOE_REACH * FL_n,
                             H_n, instep, w0, TOE_APEX, TOE_RISE * H_n, 0.01 * FW_n))

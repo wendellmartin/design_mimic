@@ -20,6 +20,7 @@ TOE_APEX = 0.4      # where the bottom edge peaks, fraction of the exposed toe l
 TOE_RISE = 0.35     # how high the bottom edge arcs above the sole, fraction of FootHeight
 TOE_FAN_DEG = 0.0   # outer toes splay this much (0 = parallel)
 FOOT_ANKLE_W = 0.76 # foot width from the heel to the front face, fraction of FootWidth (parallel sides)
+FOOT_BLOCK = 0.16   # the solid foot ends this far ahead of the ankle (fraction of FootLength; must cover the ankle post); the toes carry on from there
 FOOT_FILLET = 0.06  # fillet radius on the foot's top edges, fraction of FootWidth
 ROT_PX = App.Rotation(V(0, 1, 0), 90)     # local +Z -> +X
 ROT_NX = App.Rotation(V(0, 1, 0), -90)    # local +Z -> -X
@@ -1059,12 +1060,15 @@ def _wedge(ctx, name, x, y, z, x2, z2, rot=None):
         w.Placement = App.Placement(V(0, 0, 0), rot)
     return w
 
-def _blade_toe(ctx, name, x0, yaw, y_face, y_root, y_tip, H, instep, w0, apex, rise, sink):
+def _blade_toe(ctx, name, x0, yaw, y_face, y_root, y_tip, H, instep, w0, apex, rise, sink, y_block=None):
     """One toe as a smooth lofted blade (numeric).  Knife section: flat top, short vertical sides,
     sharp bottom edge.  Bottom edge lies on the sole plane inside the foot, leaves it at the front face,
     arcs up to `rise` at `apex` (fraction of the exposed length) and comes down to a point at y_tip.
-    Top edge follows the instep surface (sunk by `sink`) and converges to the same point."""
-    n_in, n_out = 3, 14
+    Top edge follows the instep surface (sunk by `sink`) and converges to the same point.
+    y_block: the solid foot ends here; behind it the blade is buried (bottom sunk under the sole so
+    the fuse takes), ahead of it the blade is exposed with its knife edge on the sole."""
+    n_in, n_out = 3, 14                      # few inner sections: a smooth loft through many collinear ones wobbles
+    y_block = y_face if y_block is None else y_block
     ys = [y_root + (y_face - y_root) * i / n_in for i in range(n_in)] +          [y_face + (y_tip - y_face) * i / n_out for i in range(n_out + 1)]
     wires = []
     for y in ys:
@@ -1078,7 +1082,7 @@ def _blade_toe(ctx, name, x0, yaw, y_face, y_root, y_tip, H, instep, w0, apex, r
         zb = H - rise * bump
         h_face = H - instep(y_face) - sink
         if v <= 0:
-            zb = H - sink * (y_face - y) / (y_face - y_root)          # inside: just under the sole plane
+            zb = H - sink * max(0.0, (y_block - y) / (y_block - y_root))   # buried part: just under the sole plane
             zt = instep(y) + sink                                    # inside: just under the instep
         else:
             zt = zb - h_face * (1 - v ** 1.3)                        # height fades to a point at the tip
@@ -1099,9 +1103,10 @@ def _blade_toe(ctx, name, x0, yaw, y_face, y_root, y_tip, H, instep, w0, apex, r
 def build_foot(ctx):
     """Origin at the ankle face, local +Z = down, +Y = forward.  A flat-soled foot: the ankle sits 30%
     of FootLength from the heel; the instep slopes down from the ankle to the toe and heel; the
-    footprint is a rounded heel and parallel sides (FOOT_ANKLE_W wide) ending in a flat front face,
-    where three parallel blade toes emerge and arc down to points on the sole plane.  Top edges
-    filleted."""
+    footprint is a rounded heel and parallel sides (FOOT_ANKLE_W wide).  The solid foot ends
+    FOOT_BLOCK ahead of the ankle; from there the three toes' own sections carry on -- top on the
+    instep slope, knife bottom on the sole -- to where the claws curve down to points on the sole
+    plane.  Block top edges filleted (not its front face, so the toes run straight out of it)."""
     face, face_n = _face(ctx, "AnkleBall")
     H, FL, FW, TW = S("FootHeight"), S("FootLength"), S("FootWidth"), S("ToeWidth")
     # instep top at the ankle: FOOT_ANKLE_H of the way from the sole up to just under the ankle face
@@ -1115,18 +1120,21 @@ def build_foot(ctx):
          _wedge(ctx, "Foot_Heel", (neg(FW), FW), ("0 mm", heel), (top, H), (neg(FW), FW), (sole_top_h, H),
                 rot=App.Rotation(V(0, 0, 1), 180))]
     body = ctx.fuse("Foot_Body", f)
-    # footprint: a rounded heel and a constant-width slab to the front face, extruded through the full height
+    # footprint: a rounded heel and a constant-width slab to the block's front face, through the full height
     yh, yt = neg(sub(heel, ra)), sub(toe, rt)
+    yb = mul(FL, FOOT_BLOCK)
     fp = [ctx.cylinder("Foot_PrintHeel", ra, H, y=yh),
-          ctx.box("Foot_PrintMid", mul(ra, 2), sub(yt, yh), H, x=neg(ra), y=yh)]
+          ctx.box("Foot_PrintMid", mul(ra, 2), sub(yb, yh), H, x=neg(ra), y=yh)]
     print_ = ctx.fuse("Foot_Print", fp)
     body = ctx.common("Foot_Shaped", body, print_)
-    # fillet every edge except those lying in the sole plane
+    # fillet every edge except those lying in the sole plane or in the block's front face
     ctx.doc.recompute()
     H_n = ctx.s("FootHeight")
+    yb_n = ctx.s("FootLength") * FOOT_BLOCK
     edges = [(i + 1, FOOT_FILLET * ctx.s("FootWidth"), FOOT_FILLET * ctx.s("FootWidth"))
              for i, e in enumerate(body.Shape.Edges)
-             if not all(abs(vx.Point.z - H_n) < 0.01 for vx in e.Vertexes)]
+             if not all(abs(vx.Point.z - H_n) < 0.01 for vx in e.Vertexes)
+             and not all(abs(vx.Point.y - yb_n) < 0.01 for vx in e.Vertexes)]
     fil = ctx.obj("Part::Fillet", "Foot_Fillet")
     fil.Base = body; fil.Edges = edges
     body.Visibility = False
@@ -1147,8 +1155,8 @@ def build_foot(ctx):
     w0 = TOE_BLADE_W * TW_n
     x_out = FW_n * FOOT_ANKLE_W / 2 - w0 / 2     # outer toes' outer faces flush with the foot's sides
     for k, (x0, yaw) in enumerate(((-x_out, TOE_FAN_DEG), (0.0, 0.0), (x_out, -TOE_FAN_DEG))):
-        f.append(_blade_toe(ctx, f"Foot_Toe{k+1}", x0, yaw, yt_n, yt_n - 0.15 * FL_n, yt_n + TOE_REACH * FL_n,
-                            H_n, instep, w0, TOE_APEX, TOE_RISE * H_n, 0.01 * FW_n))
+        f.append(_blade_toe(ctx, f"Foot_Toe{k+1}", x0, yaw, yt_n, yb_n - 0.1 * FL_n, yt_n + TOE_REACH * FL_n,
+                            H_n, instep, w0, TOE_APEX, TOE_RISE * H_n, 0.01 * FW_n, y_block=yb_n))
     body = ctx.fuse("Foot_All", f)
     socks, _ = ctx.peg_pattern("Foot_Sockets", face, face_n, "socket")
     foot = ctx.cut("Foot", body, socks)

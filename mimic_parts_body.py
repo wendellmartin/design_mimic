@@ -1174,15 +1174,16 @@ def build_foot(ctx):
     sink_n = 0.01 * FW_n
     xs = [-x_out, 0.0, x_out]
     def section(y, at_toes):
-        zt = instep(y) + sink_n                                         # toe top at the root (see _blade_toe, v = 0)
+        zt = instep(y) + (sink_n if at_toes else 0.0)                   # toe top at the root (see _blade_toe, v = 0); block top exactly on the instep
         h = H_n - zt                                                    # toe height there
         dip = FOOT_WEB * h if at_toes else 0.0
         side = (x_out + w0 / 2) if at_toes else ra_n                    # outer faces: toe side or block side
         r = 0.02 * w0 if at_toes else rf                                # top-corner rounding
         pts = [V(-x_out if at_toes else -ra_n, y, H_n)]                 # start: outer toe's knife point / block's sole corner
         pts.append(V(-side, y, zt + 0.35 * h))                          # up the lower slant to the vertical side
-        for j in range(4):                                              # rounded top-left corner
-            a_ = math.pi / 2 * j / 4
+        NA = 8
+        for j in range(NA):                                             # rounded top-left corner
+            a_ = math.pi / 2 * j / NA
             pts.append(V(-side + r - r * math.cos(a_), y, zt + r - r * math.sin(a_)))
         for k, xk in enumerate(xs):                                     # across the tops, dipping between toes
             if k > 0:
@@ -1193,8 +1194,8 @@ def build_foot(ctx):
                 for j in range(1, 6):
                     u = j / 6
                     pts.append(V(xa + (xb - xa) * u, y, zt + dip * (1 - math.cos(2 * math.pi * u)) / 2))
-        for j in range(4):                                              # rounded top-right corner
-            a_ = math.pi / 2 * (j + 1) / 4
+        for j in range(NA):                                             # rounded top-right corner
+            a_ = math.pi / 2 * (j + 1) / NA
             pts.append(V(side - r + r * math.sin(a_), y, zt + r - r * math.cos(a_)))
         pts.append(V(side, y, zt + 0.35 * h))
         pts.append(V(x_out if at_toes else ra_n, y, H_n))               # down the inner toe's slant to the ground

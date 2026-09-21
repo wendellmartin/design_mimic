@@ -1201,7 +1201,10 @@ def build_foot(ctx):
         pts.append(V(x_out if at_toes else ra_n, y, H_n))               # down the inner toe's slant to the ground
         pts.append(pts[0])                                              # back along the sole
         return Part.makePolygon(pts)
-    meta = Part.makeLoft([section(yb_n - 0.03 * FL_n, False), section(yt_n, True)], True, True)
+    # three sections: the block's section a little inside the block AND at its face (a straight prism,
+    # overlapping the block), then the toes' outline -- so the taper starts exactly at the face and
+    # the loft does not emerge from the block already narrowed (that left a step at the corners)
+    meta = Part.makeLoft([section(yb_n - 0.03 * FL_n, False), section(yb_n, False), section(yt_n, True)], True, True)
     f.append(ctx.obj("Part::Feature", "Foot_Metatarsal", Shape=meta))
     body = ctx.fuse("Foot_All", f)
     socks, _ = ctx.peg_pattern("Foot_Sockets", face, face_n, "socket")

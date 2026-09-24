@@ -78,6 +78,7 @@ correct front-facing camera (+Y is the front).
 | `mimic_lib.py` | expression helpers (`R`, `S`, `half`, `mul`, `add`, `sub`, `neg`), `Ctx` (primitives, `fuse`/`cut`/`common`, peg/socket/`peg_pattern`), `peg_count`, `split_count`, `new_part_doc`, `finish`, `export_stl` |
 | `mimic_geom.py` | shoulder/pelvis yoke geometry shared by parts and assembly: `yoke_side`, `junction`, `ball_bend`; YOKES/BALL_RISE/FORWARD/CONNECTOR tables |
 | `mimic_parts.py` | snap test coupons, `segment()` (struts, auto-split; styles `a`/`b`/`c`, PISTON_*/BUMP_* knobs), `ball()` (with optional gear crest), limb builders incl. sided style trials (ForearmR, ThighL/R, UpperArmL/R, ShinL), `BUILDERS` list |
+| `mimic_jointtest.py` | joint test coupons (`JointTest` builder): split-cantilever snap tuning matrix, screw, bayonet, dovetail, magnet+pins. Absolute mm, raw `Part` shapes |
 | `mimic_parts_body.py` | head (+dentures), mouth (gums/tongue + teeth as two pieces), neck, spine, shoulder yoke, pelvis, system box, hands, feet (block + metatarsal loft + blade toes) |
 | `mimic_assembly.py` | numeric chain placements → `Mimic-Assembly.FCStd` + `Mimic-Assembly.json` |
 | `viewer.html` | three.js viewer (copied to output as `Mimic-Viewer.html`) |
@@ -166,8 +167,11 @@ FOOT_FILLET 0.06, TOE_REACH 0.6, TOE_BLADE_W 0.5, TOE_APEX 0.4, TOE_RISE 0.35, T
 
 ## Next steps (as of 2026-09-21, v1.0)
 
-1. **Small-scale proof-of-concept print** with the connectors at full size: see the scale
-   analysis in the memory file / v1.0 notes; print the `SnapTest` coupons first.
+1. **Snap redesign.** The v1.0 barb has 0.0997 mm radial interference taken up by hooping a
+   SOLID lip: 5.7 % strain, past PLA's break point, so the first insertion shaves it and the
+   joint goes loose. The bore (1.8487) is also sized to the barb, not the shaft (1.5), so the
+   peg rattles 0.35 mm. Fix = compliance (split cantilever), bore sized to the shaft, bigger
+   and longer peg. Print `JointTest` first and tell Claude which SnapB coupon feels right.
 2. Internals and connections (his words): pegs on split faces of style B/C segments land in
    air at life size (no central strut) — needs a split-face plate; hollowing for big pieces.
 3. Revisit hands (untouched since v0.2). Version imprint (`Version*` params, not yet applied).

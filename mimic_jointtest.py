@@ -72,8 +72,13 @@ BAYO_SWEEP_EXTRA = 18.0    # sector sweeps BAYO_TURN + this; calibrated so the l
 BAYO_DETENT_AT = 55.0      # azimuth of the detent dome.  Both the lug (~15 deg half-width at
                            # this radius) and the dome (~13 deg) are wide, so the dome has to sit
                            # well back for the lug to ride fully over it and drop in behind
-BAYO_DETENT = 0.32                        # detent dome stand-off; the lug clears the floor by
-                                          # 0.25, so this interferes 0.07 -- round 1 used 0.20 and jammed
+BAYO_CHAN_CLEAR = 0.15                    # lug clearance in the circumferential channel
+BAYO_RAMP = 0.5                           # the run is a shallow HELIX: over BAYO_TURN it draws the
+                                          # male this much deeper, camming the joint tight
+BAYO_PRELOAD = 0.10                       # of that draw, how much is left AFTER the plates touch --
+                                          # this is the interference the wedge takes up, and it is
+                                          # spread over ~18 deg of a 1 deg ramp, so it cannot jam
+BAYO_DETENT = 0.0                         # dome detent, superseded by the ramp (0 = none)
 
 # ---- dovetail ------------------------------------------------------------------
 DOVE_WB, DOVE_WT, DOVE_H, DOVE_LEN = 6.0, 9.0, 4.0, 16.0
@@ -213,25 +218,53 @@ def _bayo_male():
     return _clean(body)
 
 
+def _bayo_run(r_in, r_out, lug_w, z0, sweep, step=3.0):
+    """The circumferential run, as a shallow helix instead of a flat sector: rotating the male
+    rides its lugs up the ramp and draws the joint tight.  A detent between two rigid solids can
+    only jam or be imperceptible; a 1-degree wedge is self-locking and progressive.
+
+    Built as overlapping annular sectors climbing in z, not as a swept helix: makePipeShell on a
+    low-pitch helix came back as a constant-height channel spanning the whole envelope.  The step
+    is 3 deg, so the staircase rises 0.017 mm at a time -- far under anything a nozzle resolves."""
+    per_deg = BAYO_RAMP / BAYO_TURN
+    n = max(1, int(round(sweep / step)))
+    run = None
+    for i in range(n):
+        a0 = sweep * i / n
+        a1 = sweep * (i + 1) / n
+        z = z0 + per_deg * (a0 + a1) / 2 - lug_w / 2
+        seg = Part.makeCylinder(r_out, lug_w, V(0, 0, z), V(0, 0, 1), (a1 - a0) + 0.6)
+        seg = seg.cut(Part.makeCylinder(r_in, lug_w + 1.0, V(0, 0, z - 0.5)))
+        seg.rotate(V(0, 0, 0), V(0, 0, 1), a0)
+        run = seg if run is None else run.fuse(seg)
+    return run
+
+
 def _bayo_cavity(sweep_extra=None, detent_at=None):
     """Bore, plus an L-slot per lug: straight in, then a circumferential run.  The run sweeps
     BAYO_TURN PLUS the lug's own angular half-width at the bore, so the lug's CENTRE reaches
     BAYO_TURN and the sector's end face is a hard stop there.  A shallow dome on the channel
     floor just before the stop is the detent."""
     r_in, r_out = BAYO_R + BAYO_CLEAR, BAYO_R + BAYO_LUG_OUT + 0.6
-    lug_w = 2 * BAYO_LUG_R + 2 * BAYO_CLEAR
+    lug_w = 2 * BAYO_LUG_R + 2 * BAYO_CHAN_CLEAR
     extra = BAYO_SWEEP_EXTRA if sweep_extra is None else sweep_extra
     sweep = BAYO_TURN + extra
     t = Part.makeCylinder(r_in, BAYO_LEN + 1.0, V(0, 0, -0.5))
-    z_run = BAYO_LUG_Z - BAYO_LUG_R - BAYO_CLEAR                  # bottom of the circumferential run
+    # Channel centre at theta = 0.  What sets the male's depth is the channel FLOOR under the lug,
+    # so this has to account for the lug's clearance inside the channel (lug_w/2 - BAYO_LUG_R) --
+    # leave it out and that slack silently eats the ramp's draw and nothing ever wedges.
+    #   floor(theta) = z_mid0 + (BAYO_RAMP / BAYO_TURN) * theta - lug_w / 2
+    #   male proud    = BAYO_LUG_Z - floor - BAYO_LUG_R
+    # which gives BAYO_RAMP - BAYO_PRELOAD proud at 0 deg and BAYO_PRELOAD of interference at BAYO_TURN.
+    z_mid0 = BAYO_LUG_Z - BAYO_LUG_R + lug_w / 2 - BAYO_RAMP + BAYO_PRELOAD
+    z_run = z_mid0 - lug_w / 2                                    # bottom of the run at theta = 0
     for ang in (0, 180):
         # entry runs from the mouth (z=0) up to just past the lug's seated height, along +X so it
         # meets the start of the circumferential sector, which sweeps from azimuth 0
         entry = Part.makeBox(r_out, lug_w, z_run + lug_w + 1.0, V(0, -lug_w / 2, -0.5))
         entry.rotate(V(0, 0, 0), V(0, 0, 1), ang)
         t = t.fuse(entry)
-        run = Part.makeCylinder(r_out, lug_w, V(0, 0, z_run), V(0, 0, 1), sweep)
-        run = run.cut(Part.makeCylinder(r_in, lug_w + 1.0, V(0, 0, z_run - 0.5)))
+        run = _bayo_run(r_in, r_out, lug_w, z_mid0, sweep)
         run.rotate(V(0, 0, 0), V(0, 0, 1), ang)
         t = t.fuse(run)
     # detent: a dome standing BAYO_DETENT off the channel floor, a few degrees before the stop.
@@ -239,7 +272,7 @@ def _bayo_cavity(sweep_extra=None, detent_at=None):
     # (kept out at the lug's outer end: a dome near the bore would also stand proud inside the
     #  bore itself and block the boss from entering at all)
     r_dome, r_dome_at = 1.2, BAYO_R + BAYO_LUG_OUT - 0.4
-    for ang in (0, 180):
+    for ang in (() if BAYO_DETENT <= 0 else (0, 180)):
         dome = Part.makeSphere(r_dome, V(r_dome_at, 0, z_run - r_dome + BAYO_DETENT))
         dome.rotate(V(0, 0, 0), V(0, 0, 1), ang + (BAYO_DETENT_AT if detent_at is None else detent_at))
         t = t.cut(dome)

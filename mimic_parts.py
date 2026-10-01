@@ -107,6 +107,20 @@ def segment(ctx, name, length, length_n, dia, dia_n, prox_face, prox_face_n, dis
             feats.append(ctx.cylinder(f"{name}_Rod{i+1}", rod_r, rod_len, x=x, y=y, z=prox_cup_h))
     if collar:
         feats.append(ctx.cylinder(f"{name}_Collar", mul(dia, 0.65), mul(length, 0.12), z=mul(length, 0.42)))
+    # Joint spuds: the sockets are cut after the body is fused, and on a hollow strut (styles b
+    # and c) a socket is wider than the core and simply cuts the end cup off.  Fill each jointed
+    # end out to the strut's own diameter for the joint's depth -- invisible on style a, which is
+    # already solid there, and a short collar at the base of the barrels/bumps on b and c.
+    # The joint is sized by the mating FACE and nothing else -- both halves have to come out the
+    # same size or they will not mate, and the ball has no idea what strut it meets.  So the spud
+    # is simply the face carried into the part as a solid boss, deep enough to host the socket.
+    import mimic_joints
+    pr = half(prox_face) if prox_face_n >= dia_n else half(dia)
+    dr = half(dist_face) if dist_face_n >= dia_n else half(dia)
+    pd = mimic_joints.envelope(prox_face_n)[1] + 1.0
+    dd = mimic_joints.envelope(dist_face_n)[1] + 1.0
+    feats.append(ctx.cylinder(f"{name}_SpudProx", pr, pd))
+    feats.append(ctx.cylinder(f"{name}_SpudDist", dr, dd, z=sub(length, f"{dd} mm")))
     body = ctx.fuse(f"{name}_Body", feats + list(extras or []))
 
     n = split_count(length_n, ctx.v)
@@ -120,15 +134,15 @@ def segment(ctx, name, length, length_n, dia, dia_n, prox_face, prox_face_n, dis
             piece = ctx.common(f"{name}_Cut{i+1}", body, slab)
         # proximal side: sockets (from the ball, or from the previous piece)
         if i == 0:
-            socks, _ = ctx.peg_pattern(f"{name}_ProxSockets", prox_face, prox_face_n, "socket")
+            socks, _ = ctx.joint_pattern(f"{name}_ProxSockets", prox_face, prox_face_n, "socket")
         else:
-            socks, _ = ctx.peg_pattern(f"{name}_SplitSockets{i}", dia, dia_n, "socket", z=f"{length} * {i} / {n}")
+            socks, _ = ctx.joint_pattern(f"{name}_SplitSockets{i}", dia, dia_n, "socket", z=f"{length} * {i} / {n}", permanent=True)
         piece = ctx.cut(f"{name}_S{i+1}", piece, socks)
         # distal side: pegs (into the ball, or into the next piece)
         if i == n - 1:
-            pegs, _ = ctx.peg_pattern(f"{name}_DistPegs", dist_face, dist_face_n, "peg", z=length)
+            pegs, _ = ctx.joint_pattern(f"{name}_DistPegs", dist_face, dist_face_n, "peg", z=length)
         else:
-            pegs, _ = ctx.peg_pattern(f"{name}_SplitPegs{i+1}", dia, dia_n, "peg", z=f"{length} * {i+1} / {n}")
+            pegs, _ = ctx.joint_pattern(f"{name}_SplitPegs{i+1}", dia, dia_n, "peg", z=f"{length} * {i+1} / {n}", permanent=True)
         piece = ctx.fuse(f"{name}{'' if n == 1 else i+1}", [piece, pegs])
         piece.Label = f"{name}" if n == 1 else f"{name}-{i+1}of{n}"
         pieces.append((piece.Label, piece))
@@ -168,9 +182,9 @@ def ball(ctx, name, dia, dia_n, bend=ROT0, detail=True, crest=None):
     for a_, comp in zip("xyz", (corner.x, corner.y, corner.z)):
         above.setExpression(f".Placement.Base.{a_}", f"{dist[a_]} + {comp:.6f} mm")
     body = ctx.cut(f"{name}_D", body, above)
-    socks, _ = ctx.peg_pattern(f"{name}_Sockets", face, face_n, "socket")
+    socks, _ = ctx.joint_pattern(f"{name}_Sockets", face, face_n, "socket")
     body = ctx.cut(f"{name}_S", body, socks)
-    pegs, _ = ctx.peg_pattern(f"{name}_Pegs", face, face_n, "peg", rot=bend)
+    pegs, _ = ctx.joint_pattern(f"{name}_Pegs", face, face_n, "peg", rot=bend)
     if pegs is not None:
         for a_ in "xyz":
             pegs.setExpression(f".Placement.Base.{a_}", dist[a_])

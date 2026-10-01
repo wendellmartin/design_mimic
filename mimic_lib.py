@@ -184,6 +184,29 @@ class Ctx:
         o.Placement = App.Placement(App.Vector(0, 0, 0), rot or App.Rotation())
         return self.place(o, x=x, y=y, z=z)
 
+    def joint_pattern(self, name, face_dia_expr, face_dia_num, kind, z=0, rot=None, permanent=False, limit=None):
+        """The mating-face joint: a bayonet where the joint comes apart, a collet peg where it is
+        permanent (the splits inside a long bone), a plain spigot where the face is too small for
+        either.  Same contract as peg_pattern -- 'peg' fuses on, 'socket' cuts out -- so it is a
+        drop-in.  See mimic_joints for why: the bayonet has nothing thin to snap, the collet grips
+        so hard it will not come out, and two collets broke just coming off the print bed.
+
+        The geometry is numeric (absolute mm, built at the run's scale), not expression-driven."""
+        import mimic_joints
+        # `limit` is the narrowest diameter the joint must fit inside (a strut behind a flared cup,
+        # say).  Sizing off the face alone cut straight through hollow struts and severed their caps.
+        face_dia_num = min(face_dia_num, limit) if limit else face_dia_num
+        jk = mimic_joints.kind_for(face_dia_num, permanent)
+        if os.environ.get("MIMIC_LOG_PEGS"):
+            print(f"[pegs] {self.doc.Name} {name} {kind} face={face_dia_num:.2f}mm "
+                  f"-> {mimic_joints.describe(face_dia_num, permanent)}")
+        if jk is None:
+            return None, 0
+        shape = mimic_joints.shape(jk, kind == "peg", face_dia_num)
+        o = self.obj("Part::Feature", name)
+        o.Shape = shape
+        return self._frame(o, 0, 0, z, rot), 1
+
     def peg_pattern(self, name, face_dia_expr, face_dia_num, kind, z=0, rot=None):
         """Ring of pegs or sockets on a circular mating face centred on the local origin, mating plane at z.
         Returns (fused feature or None, count).  count = 0 means the face is too small for pegs."""
@@ -303,6 +326,22 @@ def export_stl(obj, path, deflection=0.05):
         else:
             print(f"[mimic]   {obj.Label}: WARNING shape reports invalid; exporting anyway, check the STL")
     m = MeshPart.meshFromShape(Shape=shape, LinearDeflection=deflection, AngularDeflection=0.3, Relative=False)
+    # Drop degenerate slivers: where a cut runs nearly tangent to a curved face (a bayonet entry
+    # slot against a ball) the BRep stays one solid but tessellates with a detached speck beside
+    # it, which prints as loose swarf.  Pieces that are legitimately multi-body, like MouthTeeth,
+    # have components of comparable size and are untouched.
+    comps = m.getSeparateComponents()
+    if len(comps) > 1:
+        big = max(c.Volume for c in comps)
+        keep = [c for c in comps if not (c.Volume < big * 0.01 and c.Volume < 5.0)]
+        if len(keep) < len(comps):
+            import Mesh as _Mesh
+            dropped = max(c.Volume for c in comps if c not in keep)
+            print(f"[mimic]   {obj.Label}: dropped {len(comps) - len(keep)} degenerate sliver(s) "
+                  f"(largest {dropped:.3f} mm3)")
+            m = _Mesh.Mesh()
+            for c in keep:
+                m.addMesh(c)
     m.write(path)
     bb = shape.BoundBox
     return (bb.XLength, bb.YLength, bb.ZLength), shape.Volume

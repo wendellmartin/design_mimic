@@ -78,6 +78,7 @@ correct front-facing camera (+Y is the front).
 | `mimic_lib.py` | expression helpers (`R`, `S`, `half`, `mul`, `add`, `sub`, `neg`), `Ctx` (primitives, `fuse`/`cut`/`common`, peg/socket/`peg_pattern`), `peg_count`, `split_count`, `new_part_doc`, `finish`, `export_stl` |
 | `mimic_geom.py` | shoulder/pelvis yoke geometry shared by parts and assembly: `yoke_side`, `junction`, `ball_bend`; YOKES/BALL_RISE/FORWARD/CONNECTOR tables |
 | `mimic_parts.py` | snap test coupons, `segment()` (struts, auto-split; styles `a`/`b`/`c`, PISTON_*/BUMP_* knobs), `ball()` (with optional gear crest), limb builders incl. sided style trials (ForearmR, ThighL/R, UpperArmL/R, ShinL), `BUILDERS` list |
+| `mimic_joints.py` | the joint used on every mating face: bayonet / collet / spigot, chosen by face size via `kind_for`; `Ctx.joint_pattern` calls it |
 | `mimic_jointtest.py` | joint test coupons (`JointTest` builder): split-cantilever snap tuning matrix, screw, bayonet, dovetail, magnet+pins. Absolute mm, raw `Part` shapes |
 | `mimic_parts_body.py` | head (+dentures), mouth (gums/tongue + teeth as two pieces), neck, spine, shoulder yoke, pelvis, system box, hands, feet (block + metatarsal loft + blade toes) |
 | `mimic_assembly.py` | numeric chain placements → `Mimic-Assembly.FCStd` + `Mimic-Assembly.json` |
@@ -95,11 +96,22 @@ Output folder `G:\My Drive\Projects\3D\Weyland\FNAF\Mimic\`: `Mimic-Resources.FC
   cross-document expressions `Mimic_Resources#Dimensions.X`; `S(name)` = `X * Scale`.
   Numbers inside `add`/`sub` need `mm` (`_q` does it). The part doc must be **saved before**
   any cross-doc expression is set (`new_part_doc` does).
-- **Peg/socket snap** is Wendell's own barbed peg (from `Shelf with Rail.FCStd`):
-  PegBaseDiameter 3, Flare 3.4, Depth 3, Tolerance 0.2, 35° flank. Peg group is
-  **absolute** (not scaled). Derived radii are reproduced to the micron (barb 1.8487, tip
-  3.776, socket tip 3.976, cavity 2.0487, lip 1.7487). Faces under `PegMinFace` (9 mm) get
-  no pegs and are fused instead. `split_count` chops long struts to fit `BuildVolume`.
+- **Mating-face joints** live in `mimic_joints.py` and are chosen per face by
+  `Ctx.joint_pattern` (same contract as the old `peg_pattern`: `"peg"` fuses on, `"socket"`
+  cuts out). All ABSOLUTE mm, numeric geometry. Decided 2026-10-01 from the printed coupons:
+  - **bayonet** for joints that come apart (the whole chain) — nothing thin to snap, assembles
+    by hand, and the helical run draws it tight. Needs a face >= 14.2 mm.
+  - **collet peg** for joints that are PERMANENT — the splits inside a long bone, which exist
+    only because of `BuildVolume`. At 0.55 mm interference it does not come back out. Not used
+    anywhere that gets handled: two snapped coming off the print bed. Face >= 12.4 mm.
+  - **spigot** (plain register, glued) below that; flat faces below 7 mm.
+  The bayonet's **locked position is the modelled pose**; the entry slots sit a quarter turn
+  back, so a part is offered up rotated anticlockwise and turned forward into place.
+  `split_count` chops long struts to fit `BuildVolume`.
+- The original barbed peg (PegBaseDiameter 3, Flare 3.4, Depth 3, Tolerance 0.2, 35 deg flank)
+  is still in `mimic_lib.peg_pattern` and still builds the `SnapTest` coupon, for reference.
+  It is no longer used on the figure: its 0.0997 mm interference was hooped by a solid lip
+  (5.7 % strain, past PLA's break point), so the first insertion shaved it loose.
 - **Frames**: every chained part has origin = centre of its proximal mating face, local +Z
   = chain direction. Sockets proximal, pegs distal. Pelvis is the root. World +Z up, +Y
   forward. Chiral parts: HipBallL/R, ShoulderBallL/R, HandL/R; everything else shared.
@@ -136,6 +148,10 @@ CHEEK_SIDE 0.5, CHEEK_DROP 0.5, CHEEK_CORNER 0.5, JAW_ATTACH 40, JAW_ANGLE 45, J
 SOCKET_* , BOSS_*, PUPIL 0.14/0.05); denture `DENTURE_INSET 0.4, FWD 0.05, DROP -0.08 (above
 the jaw), NOSE 0.9, W 1.6, T 0.5, ROD 0.2, LIP 0.2`; feet `FOOT_HEEL 0.3, FOOT_ANKLE_H 0.66,
 FOOT_FILLET 0.06, TOE_REACH 0.6, TOE_BLADE_W 0.5, TOE_APEX 0.4, TOE_RISE 0.35, TOE_FAN_DEG 12`.
+`mimic_joints.py`: `BAYO_R_MIN/MAX 3.6/7.0`, `BAYO_LEN_MIN/MAX 8/11`, `BAYO_TURN 90`,
+`BAYO_SWEEP_EXTRA 18` (calibrated: the lug's leading edge meets the stop AT 90 deg),
+`BAYO_RAMP 0.5` / `BAYO_PRELOAD 0.10` (the cam: draws in, then wedges),
+`COLLET_INTERFERENCE 0.55` (his pick), `COLLET_WALL 2.0`.
 
 ## OCC / FreeCAD lessons (hard-won — don't relearn)
 
@@ -167,11 +183,10 @@ FOOT_FILLET 0.06, TOE_REACH 0.6, TOE_BLADE_W 0.5, TOE_APEX 0.4, TOE_RISE 0.35, T
 
 ## Next steps (as of 2026-09-21, v1.0)
 
-1. **Snap redesign.** The v1.0 barb has 0.0997 mm radial interference taken up by hooping a
-   SOLID lip: 5.7 % strain, past PLA's break point, so the first insertion shaves it and the
-   joint goes loose. The bore (1.8487) is also sized to the barb, not the shaft (1.5), so the
-   peg rattles 0.35 mm. Fix = compliance (split cantilever), bore sized to the shaft, bigger
-   and longer peg. Print `JointTest` first and tell Claude which SnapB coupon feels right.
+1. **Print the new joints.** v1.1 put bayonets on the whole chain and collets on the bone
+   splits. Unproven at figure scale as opposed to on coupons: check that a bayonet boss that
+   protrudes 8-11 mm does not foul anything during assembly, and that the quarter turn is
+   reachable by hand once the limb is on.
 2. Internals and connections (his words): pegs on split faces of style B/C segments land in
    air at life size (no central strut) — needs a split-face plate; hollowing for big pieces.
 3. Revisit hands (untouched since v0.2). Version imprint (`Version*` params, not yet applied).

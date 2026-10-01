@@ -580,7 +580,7 @@ def build_head(ctx):
         rods = [x for x in f_dent if "Rod" in x.Name]
         rest = [x for x in f_dent if "Rod" not in x.Name]
         body = ctx.fuse("Head_Body", [body] + rods + rest)
-    socks, _ = ctx.peg_pattern("Head_NeckSockets", neck_face, neck_face_n, "socket")
+    socks, _ = ctx.joint_pattern("Head_NeckSockets", neck_face, neck_face_n, "socket")
     # pupils: a shallow flat-bottomed dimple in the front of each eyeball
     pupils = []
     for k, sx in enumerate((-1, 1)):
@@ -819,7 +819,7 @@ def build_spine(ctx):
     # pad face flush with the spine surface (y = SD/2): the box back sits against the column
     extras.append(ctx.box("Spine_Pad", pad_face, mul(SD, 0.3), pad_face,
                           x=neg(half(pad_face)), y=mul(SD, 0.2), z=sub(z_pad, half(pad_face))))
-    pegs, _ = ctx.peg_pattern("Spine_BoxPegs", pad_face, pad_face_n, "peg", rot=ROT_PY)
+    pegs, _ = ctx.joint_pattern("Spine_BoxPegs", pad_face, pad_face_n, "peg", rot=ROT_PY)
     if pegs is not None:
         pegs.setExpression(".Placement.Base.y", half(SD)); pegs.setExpression(".Placement.Base.z", z_pad)
         extras.append(pegs)
@@ -908,7 +908,7 @@ def _yoke_pieces(ctx, name, label, col, arms, geoms, x_pad, collars, face_dia, f
     ball_pegs = {}
     for side, sx, rot in (("L", -1, ROT_NX), ("R", 1, ROT_PX)):
         g = geoms[side]
-        p, _ = ctx.peg_pattern(f"{name}_BallPegs{side}", face_dia, face_dia_n, "peg", rot=g["rot"])
+        p, _ = ctx.joint_pattern(f"{name}_BallPegs{side}", face_dia, face_dia_n, "peg", rot=g["rot"])
         if p is not None:
             for ax, e in zip("xyz", g["F_expr"]):
                 p.setExpression(f".Placement.Base.{ax}", e)
@@ -932,10 +932,10 @@ def _yoke_pieces(ctx, name, label, col, arms, geoms, x_pad, collars, face_dia, f
         for (tag, Pn, u, _zn, _kd), (_t, z) in zip(geoms[side]["bars"], collars):
             tcross = (xpn - Pn.x) / u.x if abs(u.x) > 1e-9 else 0.0
             Xc = Pn + u * tcross
-            s_, _ = ctx.peg_pattern(f"{name}_Arm{side}{tag}Sockets", YB, ybn, "socket", rot=rot)
+            s_, _ = ctx.joint_pattern(f"{name}_Arm{side}{tag}Sockets", YB, ybn, "socket", rot=rot)
             s_.Placement = App.Placement(Xc, rot)
             socks.append(s_)
-            p_, _ = ctx.peg_pattern(f"{name}_Col{side}{tag}Pegs", YB, ybn, "peg", rot=rot)
+            p_, _ = ctx.joint_pattern(f"{name}_Col{side}{tag}Pegs", YB, ybn, "peg", rot=rot)
             p_.Placement = App.Placement(Xc, rot)
             col_pegs.append(p_)
         arm = ctx.cut(f"{name}_Arm{side}S", arm, ctx.fuse(f"{name}_Arm{side}SocketsAll", socks))
@@ -956,8 +956,8 @@ def build_shoulderyoke(ctx):
     HH = S("HubHeight")
     col, arms, geoms, x_pad, x_padn, collars = _yoke(ctx, "Yoke", "shoulder", "ShoulderWidth", "ShoulderBall", sh_face)
     col.insert(0, ctx.cylinder("Yoke_Column", half(SD), HH))
-    neck_pegs, _ = ctx.peg_pattern("Yoke_NeckPegs", SD, sdn, "peg", z=HH)
-    spine_socks, _ = ctx.peg_pattern("Yoke_SpineSockets", SD, sdn, "socket")
+    neck_pegs, _ = ctx.joint_pattern("Yoke_NeckPegs", SD, sdn, "peg", z=HH)
+    spine_socks, _ = ctx.joint_pattern("Yoke_SpineSockets", SD, sdn, "socket")
     return _yoke_pieces(ctx, "Yoke", "ShoulderYoke", col, arms, geoms, x_pad, collars,
                         sh_face, sh_face_n, [neck_pegs], [spine_socks])
 
@@ -972,7 +972,7 @@ def build_pelvis(ctx):
     z_s1 = f"(({neg(mul(SD, 0.35))} + {neg(S('PelvisDrop'))}) / 2)"
     col_len = add(neg(z_s1), mul(SD, 0.25))
     col.insert(0, ctx.cylinder("Pelvis_Column", half(SD), col_len, z=neg(col_len)))
-    spine_pegs, _ = ctx.peg_pattern("Pelvis_SpinePegs", SD, sdn, "peg")
+    spine_pegs, _ = ctx.joint_pattern("Pelvis_SpinePegs", SD, sdn, "peg")
     return _yoke_pieces(ctx, "Pelvis", "Pelvis", col, arms, geoms, x_pad, collars,
                         hip_face, hip_face_n, [spine_pegs], [])
 
@@ -1006,7 +1006,7 @@ def build_systembox(ctx):
                                x=mul(W, fx), y=neg(half(Hh)), z=mul(D, 0.5),
                                rot=ROT_YZ.multiply(App.Rotation(V(0, 0, 1), 180))))
     body = ctx.fuse("SysBox_Cabled", [body] + loops)
-    socks, _ = ctx.peg_pattern("SysBox_Sockets", pad_face, pad_face_n, "socket")
+    socks, _ = ctx.joint_pattern("SysBox_Sockets", pad_face, pad_face_n, "socket")
     out = ctx.cut("SystemBox", body, socks)
     out.Label = "SystemBox"
     return [("SystemBox", out)]
@@ -1046,7 +1046,7 @@ def _hand(ctx, name, tx):
         digit(f"Hand_D{k+1}", mul(PW, fx), z0, ROT0, (0.4, 0.33, 0.27), 0.9)
     digit("Hand_Thumb", mul(PW, 0.5 * tx), mul(palm_len, 0.6), App.Rotation(V(0, 1, 0), tx * 45), (0.3, 0.25), 0.9)
     body = ctx.fuse("Hand_Body", f)
-    socks, _ = ctx.peg_pattern("Hand_Sockets", face, face_n, "socket")
+    socks, _ = ctx.joint_pattern("Hand_Sockets", face, face_n, "socket")
     hand = ctx.cut(name, body, socks)
     hand.Label = name
     return [(name, hand)]
@@ -1220,7 +1220,7 @@ def build_foot(ctx):
         print(f"[mimic]   Foot: web front-edge fillet failed on {len(web_edges)} edges; left sharp")
     f.append(ctx.obj("Part::Feature", "Foot_Metatarsal", Shape=meta))
     body = ctx.fuse("Foot_All", f)
-    socks, _ = ctx.peg_pattern("Foot_Sockets", face, face_n, "socket")
+    socks, _ = ctx.joint_pattern("Foot_Sockets", face, face_n, "socket")
     foot = ctx.cut("Foot", body, socks)
     foot.Label = "Foot"
     return [("Foot", foot)]

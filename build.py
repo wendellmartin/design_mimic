@@ -79,6 +79,41 @@ def main():
         f.write("| Part | Piece | X | Y | Z | cm3 | |\n|---|---|---|---|---|---|---|\n")
         for part, lbl, bb, vol, over in manifest:
             f.write(f"| {part} | {lbl} | {bb[0]:.1f} | {bb[1]:.1f} | {bb[2]:.1f} | {vol:.1f} | {over} |\n")
+    # print list: what to actually send to the slicer, and HOW MANY of each -- the shared
+    # (non-chiral) limb parts are used on both sides, so the file count is not the piece count
+    try:
+        import collections, json as _json
+        links = _json.load(open(os.path.join(OUT, "Mimic-Assembly.json")))["links"]
+        qty = collections.Counter(l["stl"].split("/")[-1] for l in links)
+        vol = {f"Mimic-{lbl}.stl": v for _p, lbl, _b, v, _o in manifest}
+        head = [
+            f"# Mimic print list - Scale {values['Scale']}, "
+            f"{values['TargetHeight'] * values['Scale']:.0f} mm tall",
+            "",
+            "Everything is in `STL/`. Print the quantity shown: the shared (non-chiral) limb",
+            "parts are used on both sides. `Joint-*` and `SnapTest-*` are the joint test",
+            "coupons, not part of the figure.",
+            "",
+            "Assembly: a bayonet's locked position is the modelled pose -- offer each part up",
+            "rotated a quarter turn anticlockwise and turn it forward until it stops.",
+            "",
+            "| file | qty | cm3 |",
+            "|---|---|---|",
+        ]
+        tot = 0.0
+        rows = []
+        for name in sorted(qty):
+            v = vol.get(name, 0.0) * qty[name]
+            tot += v
+            rows.append(f"| {name} | {qty[name]} | {v:.1f} |")
+        rows.append(f"| **total** | **{sum(qty.values())}** | **{tot:.0f}** "
+                    f"(~{tot * 1.24:.0f} g PLA) |")
+        with open(os.path.join(OUT, "Mimic-PrintList.md"), "w", encoding="utf-8") as f:
+            f.write("\n".join(head + rows) + "\n")
+        print(f"[mimic] print list: {sum(qty.values())} pieces, {tot:.0f} cm3")
+    except Exception:
+        print("[mimic] print list FAILED")
+        traceback.print_exc()
     import shutil
     shutil.copy(os.path.join(HERE, "viewer.html"), os.path.join(OUT, "Mimic-Viewer.html"))
     with open(os.path.join(OUT, "index.html"), "w") as f:      # the folder root opens the viewer

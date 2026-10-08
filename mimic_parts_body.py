@@ -69,6 +69,8 @@ HEAD_BOSS_AZ = 45.0             # ...and this far round from the eye's outer sid
 HEAD_SOCKET_SPAN = 150.0        # socket wedge: degrees of azimuth from the medial side of the eye round the back (must reach the boss)
 HEAD_CHEEK_CORNER = 0.5         # cheek bar turns the front corner this many eye radii behind the eye centre
 HEAD_JAW_ANGLE = 45.0           # after the corner the cheek/jaw bars head inward-forward at this angle
+HEAD_MIDLINE_LAP = 0.0   # how far the cheek/jaw tubes cross the midline (head radii) so the two
+                          # sides overlap instead of touching exactly -- see jaw_front_side
 HEAD_JAW_ROUND = 0.7            # front rounding bulge, as a fraction of the half eye spacing
 DENTURE_INSET = 0.34            # denture platforms sit this far inside the jaw bar (head radii); ~0.13 would touch it
 DENTURE_FWD = 0.05              # its arms end this far forward of the jaw's corner
@@ -483,7 +485,7 @@ def build_head(ctx):
         nl = max(1, int(round(t_line / SPINE_STEP)))
         out += [C2 + d45 * (t_line * i / nl) for i in range(1, nl)]
         yf = C3.y + x_turn * HEAD_JAW_ROUND
-        out += hermite(C3, d45, V(0, yf, z), V(-sx, 0, 0), ka=0.9, kb=0.9)
+        out += hermite(C3, d45, V(-sx * HEAD_MIDLINE_LAP, yf, z), V(-sx, 0, 0), ka=0.9, kb=0.9)
         return out, yf
     def jaw_front(z):
         return jaw_front_side(z, sx)
@@ -505,7 +507,12 @@ def build_head(ctx):
         pts += front[1:]
         pts = [V(p.x, p.y, z_of(p.y)) for p in pts]
         cheek_paths[sx] = pts
-        f.append(tube(f"Head_Cheek{k+1}", pts, CB))
+    if "cheek" not in SKIP:
+        # ONE tube from the left attachment, round the chin, to the right -- not two meeting at the
+        # midline.  Two tube ends butting there is a tangency: it left the head's only mesh hole,
+        # lapping them past each other only turned it into slivers, and a knuckle sphere dropped
+        # the fuse to negative volume.  With no junction there is nothing to go wrong.
+        f.append(tube("Head_Cheek", cheek_paths[-1] + list(reversed(cheek_paths[1]))[1:], CB))
 
     f_cheek = f; f = []                     # group 3: cheek bars
     # jaw bar: starts inside the neck boss (or at the strap's side edge when HEAD_JAW_ATTACH_DEG > 0),
@@ -528,7 +535,8 @@ def build_head(ctx):
         jaw_paths[sx] = pts
         # corrected-Frenet sweep: the flare has an inflection and the runs are straight, both of which
         # break the plain Frenet frame (the cheek, a 3-D curve without either, is fine with Frenet)
-        f.append(tube(f"Head_Jaw{k+1}", pts, CB, frenet=False))
+    if "jaw" not in SKIP:
+        f.append(tube("Head_Jaw", jaw_paths[-1] + list(reversed(jaw_paths[1]))[1:], CB, frenet=False))
     # denture platforms: a flat U inside a bar (jaw below, cheek above), a little forward of it and
     # DENTURE_DROP away from it, tied to the bar's tube by thin rods on each side.  The upper one is
     # the lower one flipped: lip on its underside, end-lips hanging down, rods going up.

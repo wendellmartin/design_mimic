@@ -121,9 +121,21 @@ def segment(ctx, name, length, length_n, dia, dia_n, prox_face, prox_face_n, dis
     dd = mimic_joints.envelope(dist_face_n)[1] + 1.0
     feats.append(ctx.cylinder(f"{name}_SpudProx", pr, pd))
     feats.append(ctx.cylinder(f"{name}_SpudDist", dr, dd, z=sub(length, f"{dd} mm")))
+    # ...and one straddling every split plane.  On a hollow strut the split joint sits on the
+    # centreline, which is empty space between the barrels or inside the pipe, so the boss came
+    # out as a loose 0.5 cm3 lump beside the part.
+    prot_s = mimic_joints.envelope(dia_n, permanent=True)[1] + 1.0
+    n_pre = split_count(length_n, ctx.v, max(mimic_joints.envelope(dia_n, permanent=True)[1],
+                                             mimic_joints.envelope(dist_face_n)[1]))
+    for i in range(1, n_pre):
+        feats.append(ctx.cylinder(f"{name}_SpudSplit{i}", half(dia), 2 * prot_s,
+                                  z=sub(f"{length} * {i} / {n_pre}", f"{prot_s} mm")))
     body = ctx.fuse(f"{name}_Body", feats + list(extras or []))
 
-    n = split_count(length_n, ctx.v)
+    # the printed piece is the segment plus whatever the male joint sticks out past its end
+    prot = max(mimic_joints.envelope(dia_n, permanent=True)[1],
+               mimic_joints.envelope(dist_face_n)[1])
+    n = split_count(length_n, ctx.v, prot)
     pieces = []
     for i in range(n):
         if n == 1:

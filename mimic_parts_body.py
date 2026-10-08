@@ -24,6 +24,9 @@ FOOT_BLOCK = 0.16   # the solid foot block ends this far ahead of the ankle (fra
 FOOT_WEB = 0.8      # metatarsal web: how far the top dips between the toes at the toe root, fraction of the toe height there
 WEB_FILLET = 0.25   # rounding of the edge where each web's top meets its front wall (between the toes), fraction of ToeWidth
 FOOT_FILLET = 0.06  # fillet radius on the foot's top edges, fraction of FootWidth
+FOOT_SPLIT_CLEAR = 0.1   # the life-size foot's cut stays this far (x FootLength) behind the
+                         # toe root; past it the section is three separate claws
+FOOT_SPLIT_FACE = 0.8    # joint face at the cut, as a fraction of the section's smaller side
 ROT_PX = App.Rotation(V(0, 1, 0), 90)     # local +Z -> +X
 ROT_NX = App.Rotation(V(0, 1, 0), -90)    # local +Z -> -X
 ROT_PY = App.Rotation(V(1, 0, 0), -90)    # local +Z -> +Y
@@ -860,6 +863,7 @@ def _yoke(ctx, name, kind, width, ball, face_dia):
                                y=neg(mul(YB, 0.7)), z=sub(z, mul(YB, 0.7))))
     # clavicle junction: a knuckle over the control box's top-front edge, shared by both sides
     junc = None
+    knuckle = []
     for tag, z in collars:
         if kinds[tag] == "junction":
             if kind == "shoulder":
@@ -870,14 +874,17 @@ def _yoke(ctx, name, kind, width, ball, face_dia):
             CONN = S("ClavicleBar") if kind == "shoulder" else S("PelvisBar")
             # centre joint on the box's top-front edge; from it each side's thick connector runs
             # straight along the clavicle's own line for ClavicleBar/2, then the clavicle continues
-            col.append(ctx.sphere(f"{name}_ClavJoint", mul(YB, 0.7), y=jy, z=jz))
+            # These go to the ARMS, not the column.  Everything in the yoke hangs together through
+            # the ball: collar -> pad bar -> ball <- junction bar <- knuckle.  Cut the yoke at the
+            # pads and a knuckle left on the column is an island -- 142 cm3 of it, floating.
+            knuckle.append(ctx.sphere(f"{name}_ClavJoint", mul(YB, 0.7), y=jy, z=jz))
             for side, sx in (("L", -1), ("R", 1)):
                 u = [b for b in geoms_pre[side]["bars"] if b[4] == "junction"][0][2]
-                col.append(ctx.cylinder(f"{name}_ClavConn{side}", mul(YB, 0.6), half(CONN),
-                                        y=jy, z=jz, rot=App.Rotation(V(0, 0, 1), u)))
-                col.append(ctx.sphere(f"{name}_ClavConnEnd{side}", mul(YB, 0.6),
-                                      x=f"({half(CONN)} * {u.x:.6f})", y=f"({jy} + {half(CONN)} * {u.y:.6f})",
-                                      z=f"({jz} + {half(CONN)} * {u.z:.6f})"))
+                knuckle.append(ctx.cylinder(f"{name}_ClavConn{side}", mul(YB, 0.6), half(CONN),
+                                            y=jy, z=jz, rot=App.Rotation(V(0, 0, 1), u)))
+                knuckle.append(ctx.sphere(f"{name}_ClavConnEnd{side}", mul(YB, 0.6),
+                                          x=f"({half(CONN)} * {u.x:.6f})", y=f"({jy} + {half(CONN)} * {u.y:.6f})",
+                                          z=f"({jz} + {half(CONN)} * {u.z:.6f})"))
     fwd = S("ShoulderForward") if kind == "shoulder" else S("PelvisForward")
     arms, geoms = {}, {"L": gL, "R": gR}
     for side, sx in (("L", -1), ("R", 1)):
@@ -899,9 +906,9 @@ def _yoke(ctx, name, kind, width, ball, face_dia):
         f.append(ctx.cylinder(f"{name}_Disc{side}", half(face_dia), CL_e,
                               x=base[0], y=base[1], z=base[2], rot=App.Rotation(V(0, 0, 1), n)))
         g["F_expr"] = along(B, c_e, n)
-    return col, arms, geoms, x_pad, x_padn, collars
+    return col, arms, geoms, x_pad, x_padn, collars, knuckle
 
-def _yoke_pieces(ctx, name, label, col, arms, geoms, x_pad, collars, face_dia, face_dia_n, end_pegs, end_socks):
+def _yoke_pieces(ctx, name, label, col, arms, geoms, x_pad, collars, face_dia, face_dia_n, end_pegs, end_socks, knuckle=()):
     """Fuse a yoke into one piece, or split it into Column + ArmL + ArmR (pegged at the pads)
     when it is wider than the build cube."""
     YB = S("YokeBar"); ybn = ctx.s("YokeBar")
@@ -915,21 +922,27 @@ def _yoke_pieces(ctx, name, label, col, arms, geoms, x_pad, collars, face_dia, f
         ball_pegs[side] = p
     width_n = 2 * abs(geoms["R"]["B"].x)      # ball centre to centre: the tilted disc + pegs reach nearly that far
     if width_n <= ctx.v["BuildVolume"]:
-        body = ctx.fuse(f"{name}_Body", col + arms["L"] + arms["R"])
+        body = ctx.fuse(f"{name}_Body", col + list(knuckle) + arms["L"] + arms["R"])
         for i, s_ in enumerate(end_socks):
             body = ctx.cut(f"{name}_S{i+1}", body, s_)
         out = ctx.fuse(label, [body] + end_pegs + [ball_pegs["L"], ball_pegs["R"]])
         out.Label = label
         return [(label, out)]
     pieces, col_pegs = [], []
+    # The bars' INNER halves have to stay with the column.  Without them the column is the collars
+    # plus a junction knuckle that hangs out in front connected to nothing -- at life size that came
+    # out as a 142 cm3 lump floating beside the part.
     for side, sx, rot in (("L", -1, ROT_NX), ("R", 1, ROT_PX)):
-        keep = ctx.box(f"{name}_Arm{side}Keep", BIG / 2, BIG, BIG, y=-BIG / 2, z=-BIG / 2)
-        keep.setExpression(".Placement.Base.x", f"{-BIG / 2 if sx < 0 else 0} mm + {mul(x_pad, sx)}")
-        arm = ctx.common(f"{name}_Arm{side}Cut", ctx.fuse(f"{name}_Arm{side}Body", arms[side]), keep)
+        keep = ctx.box(f"{name}_Arm{side}Keep", BIG / 2, BIG, BIG,
+                       x=(-BIG / 2 if sx < 0 else 0), y=-BIG / 2, z=-BIG / 2)
+        armbody = ctx.fuse(f"{name}_Arm{side}Body", arms[side] + list(knuckle))
+        arm = ctx.common(f"{name}_Arm{side}Cut", armbody, keep)
         socks = []
         # pegs where each bar crosses the cut plane x = +/-x_pad (numeric crossing along the bar line)
         xpn = geoms[side]["bars"][0][1].x / 0.98
         for (tag, Pn, u, _zn, _kd), (_t, z) in zip(geoms[side]["bars"], collars):
+            if _kd != "pad":
+                continue
             tcross = (xpn - Pn.x) / u.x if abs(u.x) > 1e-9 else 0.0
             Xc = Pn + u * tcross
             s_, _ = ctx.joint_pattern(f"{name}_Arm{side}{tag}Sockets", YB, ybn, "socket", rot=rot)
@@ -954,12 +967,12 @@ def build_shoulderyoke(ctx):
     SD = S("SpineDiameter"); sdn = ctx.s("SpineDiameter")
     sh_face, sh_face_n = _face(ctx, "ShoulderBall")
     HH = S("HubHeight")
-    col, arms, geoms, x_pad, x_padn, collars = _yoke(ctx, "Yoke", "shoulder", "ShoulderWidth", "ShoulderBall", sh_face)
+    col, arms, geoms, x_pad, x_padn, collars, knuckle = _yoke(ctx, "Yoke", "shoulder", "ShoulderWidth", "ShoulderBall", sh_face)
     col.insert(0, ctx.cylinder("Yoke_Column", half(SD), HH))
     neck_pegs, _ = ctx.joint_pattern("Yoke_NeckPegs", SD, sdn, "peg", z=HH)
     spine_socks, _ = ctx.joint_pattern("Yoke_SpineSockets", SD, sdn, "socket")
     return _yoke_pieces(ctx, "Yoke", "ShoulderYoke", col, arms, geoms, x_pad, collars,
-                        sh_face, sh_face_n, [neck_pegs], [spine_socks])
+                        sh_face, sh_face_n, [neck_pegs], [spine_socks], knuckle=knuckle)
 
 def build_pelvis(ctx):
     """Root of the chain.  Origin at the top of the pelvis spine section (spine mating face), +Z up.
@@ -967,14 +980,14 @@ def build_pelvis(ctx):
     bars horizontal); the column runs down to the lower collar."""
     SD = S("SpineDiameter"); sdn = ctx.s("SpineDiameter")
     hip_face, hip_face_n = _face(ctx, "HipBall")
-    col, arms, geoms, x_pad, x_padn, collars = _yoke(ctx, "Pelvis", "pelvis", "PelvisWidth", "HipBall", hip_face)
+    col, arms, geoms, x_pad, x_padn, collars, knuckle = _yoke(ctx, "Pelvis", "pelvis", "PelvisWidth", "HipBall", hip_face)
     # the column ends flush with the lowest ring that still carries bars (S1)
     z_s1 = f"(({neg(mul(SD, 0.35))} + {neg(S('PelvisDrop'))}) / 2)"
     col_len = add(neg(z_s1), mul(SD, 0.25))
     col.insert(0, ctx.cylinder("Pelvis_Column", half(SD), col_len, z=neg(col_len)))
     spine_pegs, _ = ctx.joint_pattern("Pelvis_SpinePegs", SD, sdn, "peg")
     return _yoke_pieces(ctx, "Pelvis", "Pelvis", col, arms, geoms, x_pad, collars,
-                        hip_face, hip_face_n, [spine_pegs], [])
+                        hip_face, hip_face_n, [spine_pegs], [], knuckle=knuckle)
 
 # ============================================================== system box
 def build_systembox(ctx):
@@ -1223,4 +1236,40 @@ def build_foot(ctx):
     socks, _ = ctx.joint_pattern("Foot_Sockets", face, face_n, "socket")
     foot = ctx.cut("Foot", body, socks)
     foot.Label = "Foot"
+
+    # At life size the foot is 341 mm long -- the only piece on the figure that no amount of
+    # parameter juggling fits on a 270 mm bed -- so cut it across and join it with a bayonet.
+    # The cut must stay BEHIND the toe root: past that the section is three separate claws and
+    # the front piece would fall into three.  A single bayonet is right here even though the seam
+    # is wide, because only one can ever go on a face (two would have to turn about their own
+    # axes at once) and its ramp clamps two large flat faces together, which is what resists
+    # rocking.  Faces too small for a bayonet fall back to a collet, as everywhere else.
+    import mimic_joints
+    ctx.doc.recompute()
+    bb = foot.Shape.BoundBox
+    usable = ctx.v["BuildVolume"] - 2.0
+    if bb.YLength > usable:
+        y_cut = min((bb.YMin + bb.YMax) / 2, yt_n - FOOT_SPLIT_CLEAR * FL_n)
+        slab = foot.Shape.common(Part.makeBox(4 * bb.XLength, 1.0, 4 * bb.ZLength,
+                                              V(-2 * bb.XLength, y_cut, -2 * bb.ZLength)))
+        sb = slab.BoundBox
+        face_d = FOOT_SPLIT_FACE * min(sb.XLength, sb.ZLength)
+        z_mid = (sb.ZMin + sb.ZMax) / 2
+        rot = App.Rotation(V(1, 0, 0), 90)          # joint local +Z -> -Y, into the back piece
+        big = 4 * max(bb.XLength, bb.YLength, bb.ZLength)
+        back = ctx.obj("Part::Feature", "Foot_Back",
+                       Shape=foot.Shape.cut(Part.makeBox(big, big, big, V(-big / 2, y_cut, -big / 2))))
+        front = ctx.obj("Part::Feature", "Foot_Front",
+                        Shape=foot.Shape.cut(Part.makeBox(big, big, big, V(-big / 2, y_cut - big, -big / 2))))
+        for o, kind, label in ((back, "socket", "Foot-Back"), (front, "peg", "Foot-Front")):
+            j, _ = ctx.joint_pattern(f"Foot_Split{kind.title()}", f"{face_d} mm", face_d, kind, rot=rot)
+            if j is not None:
+                j.Placement = App.Placement(V(0, y_cut, z_mid), rot)
+                o = ctx.cut(f"{label}_J", o, j) if kind == "socket" else ctx.fuse(f"{label}_J", [o, j])
+            o.Label = label
+            foot = o if label == "Foot-Back" else foot
+        print(f"[mimic]   Foot: {bb.YLength:.0f} mm long, split at y={y_cut:.0f} "
+              f"with a {mimic_joints.describe(face_d)} joint")
+        return [("Foot-Back", ctx.doc.getObject("Foot_Back_J") or ctx.doc.getObject("Foot_Back")),
+                ("Foot-Front", ctx.doc.getObject("Foot_Front_J") or ctx.doc.getObject("Foot_Front"))]
     return [("Foot", foot)]

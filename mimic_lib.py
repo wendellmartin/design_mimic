@@ -138,12 +138,22 @@ class Ctx:
         return o
 
     def cut(self, name, base, tool):
+        """Cut, with the same defensiveness as fuse: Refine tidies away the seams a boolean leaves
+        behind, but on a big complex shape it can turn a perfectly good cut into an empty one --
+        at life size the head's neck socket came back Invalid with it and valid without."""
         if tool is None:
             return base
         o = self.obj("Part::Cut", name)
         o.Base = base; o.Tool = tool
         o.Refine = True
         base.Visibility = False; tool.Visibility = False
+        self.doc.recompute()
+        if o.Shape.isNull() or not o.Shape.isValid():
+            o.Refine = False
+            o.touch()
+            self.doc.recompute()
+            if not o.Shape.isNull() and o.Shape.isValid():
+                print(f"[mimic]   cut {name}: refine emptied the result; kept it unrefined")
         return o
 
     def common(self, name, base, tool):
@@ -250,10 +260,14 @@ def peg_count(face_dia_scaled_mm, v):
     n = int((math.pi * ring) // (cavity * 1.6))           # keep neighbours ~1.6 cavities apart
     return max(2, min(8, n))
 
-def split_count(length_scaled_mm, v):
-    """How many pieces a straight feature of this length needs to fit the build cube."""
-    usable = v["BuildVolume"] - v["SocketTip"] - 2.0
-    return max(1, math.ceil(length_scaled_mm / usable))
+def split_count(length_scaled_mm, v, protrusion=None):
+    """How many pieces a straight feature of this length needs to fit the build cube.
+
+    `protrusion` is how far the male half of the joint sticks out past the cut face -- the printed
+    piece is that much longer than its nominal segment, which at life size is tens of millimetres
+    and was enough on its own to put pieces back over the bed."""
+    usable = v["BuildVolume"] - (v["SocketTip"] if protrusion is None else protrusion) - 2.0
+    return max(1, math.ceil(length_scaled_mm / max(usable, 10.0)))
 
 # ---------------------------------------------------------------- documents
 def new_part_doc(label, out_dir):

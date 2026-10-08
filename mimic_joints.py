@@ -33,10 +33,16 @@ V = App.Vector
 WALL = 1.2              # material left outside the socket's outer wall
 
 # ---- bayonet (proven on the coupon at R = 4.0) ---------------------------------
-BAYO_R_MIN, BAYO_R_MAX = 3.5, 7.0   # 3.5 so a 14 mm face (the ankle) still gets a bayonet and
+BAYO_R_MIN = 3.5                    # 3.5 so a 14 mm face (the ankle) still gets a bayonet and
                                     # the foot stays removable; below ~3.0 the lugs and their
                                     # 0.15 mm channel clearances stop being printable
-BAYO_LEN_MIN, BAYO_LEN_MAX = 8.0, 11.0
+# The joint grows with the face so a life-size limb does not hang off the same 14 mm boss the
+# quarter-scale one uses -- but the CLEARANCES below stay absolute, because they are printer
+# tolerances, not dimensions.  The caps are written so that every face on the quarter-scale
+# figure (14-22 mm) comes out exactly as it did before: there 0.18 * face < 7 and 0.5 * face <= 11.
+BAYO_R_CAP, BAYO_R_FRAC = 7.0, 0.18
+BAYO_LEN_CAP, BAYO_LEN_FRAC = 11.0, 0.5
+BAYO_LEN_MIN = 8.0
 BAYO_CLEAR = 0.25       # radial clearance, boss to bore
 BAYO_CHAN_CLEAR = 0.15  # lug clearance in the circumferential channel
 BAYO_TURN = 90.0        # degrees to lock
@@ -83,8 +89,10 @@ def kind_for(face_num, permanent=False):
 # ============================================================ bayonet
 def _bayo_dims(face_num):
     r_out = face_num / 2 - WALL
-    R = min(max((r_out - 0.6) / 1.4, BAYO_R_MIN), BAYO_R_MAX)
-    length = min(max(2.0 * R, BAYO_LEN_MIN), BAYO_LEN_MAX)
+    r_max = max(BAYO_R_CAP, BAYO_R_FRAC * face_num)
+    len_max = max(BAYO_LEN_CAP, BAYO_LEN_FRAC * face_num)
+    R = min(max((r_out - 0.6) / 1.4, BAYO_R_MIN), r_max)
+    length = min(max(2.0 * R, BAYO_LEN_MIN), len_max)
     lug_r = 0.35 * R
     # the lug has to sit clear of the crown chamfer; a fixed setback let it grow past the
     # boss top on big faces and the chamfer cut sliced it off as a separate solid

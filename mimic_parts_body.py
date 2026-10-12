@@ -263,7 +263,9 @@ def build_head(ctx):
     f.append(ctx.cylinder("Head_NeckBoss", half(neck_face), boss_h))
     # main strap: a HeadBar x HeadBar/2 rectangle at the bottom pole, revolved posteriorly about X
     # for all but the last HEAD_TAPER_DEG, then lofted down to the top-bar width
-    TW = f"(({S('CageBar')} / 2 + {S('HeadBar')}) / 2)"                # top-bar ribbon width
+    # Half the strap each, so the pair leaves the strap end flush with its outer edges instead of
+    # standing proud of them -- that overhang was the jagged step where the bands split off.
+    TW = half(S("HeadBar"))                                            # top-bar ribbon width
     TT = half(S("CageBar"))                                            # top-bar ribbon thickness
     rect = ctx.obj("Part::Plane", "Head_StrapSection")
     rect.setExpression("Length", HBw); rect.setExpression("Width", HBt)
@@ -278,7 +280,7 @@ def build_head(ctx):
     # taper: full width, thickness HeadBar/2 -> top-bar thickness, lofted along the arc from
     # HEAD_TAPER_DEG before the top bar's centreline to the top bar's leading edge (half its width
     # further round), where the strap ends flush with the ribbon
-    TWn = (ctx.s("CageBar") / 2 + ctx.s("HeadBar")) / 2
+    TWn = ctx.s("HeadBar") / 2
     ext_deg = 0.0                                   # the ribbons continue forward from the strap end
     secs = []
     for i in range(5):
@@ -402,12 +404,18 @@ def build_head(ctx):
     CBn = ctx.s("CageBar") / 2 / Rn
     hermite = _hermite
 
-    def tube(name, pts_unit, radius_expr, frenet=True):
+    def tube(name, pts_unit, radius_expr, frenet=True, closed=False, resample=0.0):
         """Round tube along a B-spline through unit-sphere points (scaled numerically), as a Part::Sweep.
-        The spine is static geometry (scaled at build time); the profile radius stays an expression."""
+        The spine is static geometry (scaled at build time); the profile radius stays an expression.
+        closed=True makes the spine PERIODIC -- a ring with no ends, for a bar that returns to where
+        it started.  Pass the points once round, without repeating the first."""
         # resample the polyline at even spacing first: uneven spacing makes the interpolating spline wiggle
         raw = [V(p.x * Rn, p.y * Rn, z_cn + p.z * Rn) for p in pts_unit]
-        step = 1e9      # resampling disabled: the raw points are already evenly spaced; a resampled spline exploded the sweep
+        # resample>0 walks the POLYLINE at even spacing (not along a fitted spline -- that is the
+        # resampling that once exploded the sweep).  Needed where a path is stitched together from
+        # pieces with different point spacing: an interpolating spline through uneven points
+        # undulates, and the tube comes out knobbly.
+        step = resample if resample > 0 else 1e9
         pts = [raw[0]]; carry = 0.0
         for a, b in (zip(raw[:-1], raw[1:]) if step < 1e8 else ()):
             seg = b - a; L = seg.Length
@@ -430,7 +438,7 @@ def build_head(ctx):
         pts = dedup
         if len(pts) < 3:
             raise RuntimeError(f"{name}: only {len(pts)} distinct spine points from {len(pts_unit)} (raw {[ (round(p.x,3), round(p.y,3), round(p.z,3)) for p in pts_unit][:6]})")
-        bs = Part.BSplineCurve(); bs.interpolate(pts)
+        bs = Part.BSplineCurve(); bs.interpolate(pts, PeriodicFlag=closed)
         spine = ctx.obj("Part::Feature", f"{name}_Spine")
         spine.Shape = Part.Wire(bs.toShape()); spine.Visibility = False
         d = bs.tangent(bs.FirstParameter)[0]
@@ -522,7 +530,14 @@ def build_head(ctx):
         # midline.  Two tube ends butting there is a tangency: it left the head's only mesh hole,
         # lapping them past each other only turned it into slivers, and a knuckle sphere dropped
         # the fuse to negative volume.  With no junction there is nothing to go wrong.
-        f.append(tube("Head_Cheek", cheek_paths[-1] + list(reversed(cheek_paths[1]))[1:], CB))
+        # A CLOSED ring.  Both cheek paths start at the same point on the back of the strap and
+        # run round to the chin, so the bar is really a loop: joining them into one open tube just
+        # moved the bad joint from the chin to the back, where the two ends land on the very same
+        # point and the sweep swelled and went lumpy there.  Periodic spine = no ends anywhere.
+        # frenet=False: a plain Frenet frame destabilises as it comes back round a CLOSED spine,
+        # and the last quarter of the ring swept out garbage sections (2 mm2 where it should be 79)
+        f.append(tube("Head_Cheek", cheek_paths[-1] + list(reversed(cheek_paths[1]))[1:-1], CB,
+                      closed=True, frenet=False))
 
     f_cheek = f; f = []                     # group 3: cheek bars
     # jaw bar: starts inside the neck boss (or at the strap's side edge when HEAD_JAW_ATTACH_DEG > 0),

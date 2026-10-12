@@ -331,7 +331,7 @@ def build_head(ctx):
         ]
         for w_ in way:
             w_[1].normalize(); w_[2].normalize()
-        prev_sec = None
+        n_cur = None            # carried across segments: the ribbon must not twist at the join
         for seg in range(len(way) - 1):
             Pa, ta, na = way[seg]; Pb, tb, nb = way[seg + 1]
             L = (Pb - Pa).Length
@@ -343,9 +343,19 @@ def build_head(ctx):
                 d00 = 6*s**2 - 6*s; d10 = 3*s**2 - 4*s + 1; d01 = -6*s**2 + 6*s; d11 = 3*s**2 - 2*s
                 P = Pa * h00 + m0 * h10 + Pb * h01 + m1 * h11
                 d = Pa * d00 + m0 * d10 + Pb * d01 + m1 * d11; d.normalize()
-                fr = max(min(s, 1.0), 0.0)
-                n = na * (1 - fr) + nb * fr
-                n = n - d * n.dot(d); n.normalize()                    # thickness perpendicular to the path
+                # Rotation-minimising frame: carry the previous thickness direction forward and
+                # take out the new tangent, instead of interpolating from na to nb.  Interpolating
+                # forced the section through about a quarter turn on the way to the boss, and a
+                # ribbon that twists 90 degrees goes edge-on half way along -- which reads as the
+                # bar tapering to a point and opening out again.  Cross-sections were always
+                # constant; it was the twist, not a pinch.
+                if n_cur is None:
+                    n_cur = V(na.x, na.y, na.z)
+                n = n_cur - d * n_cur.dot(d)
+                if n.Length < 1e-6:                                    # degenerate: fall back to the waypoint normal
+                    n = nb - d * nb.dot(d)
+                n.normalize()
+                n_cur = V(n.x, n.y, n.z)
                 w = n.cross(d); w.normalize()
                 secs.append(_section(ctx, f"Head_TopSec{k+1}_{seg+1}_{i+1}", Rc, z_c, P, w, n, TW, TT))
             loft = ctx.obj("Part::Loft", f"Head_TopBar{k+1}_{seg+1}")

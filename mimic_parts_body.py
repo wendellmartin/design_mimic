@@ -825,6 +825,23 @@ def build_mouth(ctx):
                 print(f"[mimic]   Mouth: first margin fillet failure: {len(rim)} rim edges: {err or 'invalid result'}")
     if failed:
         print(f"[mimic]   Mouth: gum margin filleted round {done} teeth, failed on {failed}")
+    # Neighbouring teeth interpenetrate where they touch in the arch (10 pairs, up to 23 mm3 at
+    # life size), and a compound of overlapping solids meshes as a non-manifold STL -- 2073 self
+    # intersections.  Fuse for the export only: the sockets and gum margins above need the teeth
+    # one at a time, but the printed piece is all one colour, so the clusters can be single bodies.
+    fused = teeth[0]
+    for t in teeth[1:]:
+        f2 = fused.fuse(t)
+        fused = f2 if (not f2.isNull() and f2.isValid()) else Part.makeCompound([fused, t])
+    f2 = fused.removeSplitter()
+    if not f2.isNull() and f2.isValid():
+        fused = f2
+    # the fuse counts each overlap once, so it is a touch SMALLER than the compound, never bigger
+    if (not fused.isNull() and fused.isValid()
+            and 0.9 * teeth_comp.Volume < fused.Volume <= 1.001 * teeth_comp.Volume):
+        teeth_comp = fused
+    else:
+        print("[mimic]   Mouth: tooth fuse rejected, exporting the overlapping compound")
     gums = ctx.obj("Part::Feature", "MouthGums", Shape=gums_sh)
     teeth_o = ctx.obj("Part::Feature", "MouthTeeth", Shape=teeth_comp)
     return [("MouthGums", gums), ("MouthTeeth", teeth_o)]

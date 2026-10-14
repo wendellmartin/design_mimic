@@ -1040,28 +1040,79 @@ def build_pelvis(ctx):
                         hip_face, hip_face_n, [spine_pegs], [], knuckle=knuckle)
 
 # ============================================================== system box
+# Battery enclosure fittings.  Absolute mm, like the joints: a latch is a printer-tolerance
+# feature, so it does not scale.  The shell itself still scales with the figure, and below
+# SYSBOX_MIN_CAV there is no room for any of it, so the box stays the solid block it was.
+SYSBOX_WALL      = 8.0            # side / top / bottom wall
+SYSBOX_LID_FLOOR = 6.0            # lid material behind the sunken panel
+SYSBOX_LID_EDGE  = 2.0            # border of shell left showing around the lid
+SYSBOX_CLEAR     = 0.35           # lid-to-rabbet clearance per side
+SYSBOX_BAR       = 6.0            # catch bar thickness in z: the tongue locks behind it
+SYSBOX_BAR_DROP  = 26.0           # how far the catch bar hangs down into the opening
+SYSBOX_TONGUE    = (34.0, 9.0, 5.0)   # latch tongue length (x, locked) x width x thickness
+SYSBOX_STEM      = 8.0            # latch stem diameter
+SYSBOX_FLANGE    = (26.0, 4.0)    # knob diameter, thickness
+SYSBOX_VENT      = (46.0, 7.0)    # vent slot in the lower panel; also the finger pull
+SYSBOX_PORT      = 5.0            # cable port radius, through the back wall at the top
+SYSBOX_MIN_CAV   = 25.0           # hollow only when the cavity is at least this deep
+SYSBOX_MIN_FACE  = 70.0           # ... and the opening at least this wide and tall
+
+
 def build_systembox(ctx):
-    """Origin at the back face (against the spine pad); local +Z = outward (world +Y), local -Y = up."""
+    """Origin at the back face (against the spine pad); local +Z = outward (world +Y), local -Y = up.
+
+    At life size this is a battery enclosure: hollow, with a drop-in front lid held by a
+    quarter-turn latch, and cable ports through the back wall at the top.  The lid carries the
+    sunken panel and its X, so the chest reads exactly as it did when the box was solid.
+    """
+    import mimic_joints
     W, Hh, D = S("SystemBoxWidth"), S("SystemBoxHeight"), S("SystemBoxDepth")
+    Wn, Hn, Dn = ctx.s("SystemBoxWidth"), ctx.s("SystemBoxHeight"), ctx.s("SystemBoxDepth")
     SD = S("SpineDiameter"); sdn = ctx.s("SpineDiameter")
     pad_face, pad_face_n = mul(SD, 0.8), sdn * 0.8
+    rd = Dn * 0.12                                     # sunken panel depth, as before
+    # the spine joint is cut into the back face, so the back wall has to be deeper than it
+    back = max(SYSBOX_WALL, mimic_joints.envelope(pad_face_n)[1] + 4.0)
+    lid_t = rd + SYSBOX_LID_FLOOR
+    cav_d = Dn - back - lid_t
+    hollow = (cav_d >= SYSBOX_MIN_CAV and Wn - 2 * SYSBOX_WALL >= SYSBOX_MIN_FACE
+              and Hn - 2 * SYSBOX_WALL >= SYSBOX_MIN_FACE)
+
     box = ctx.box("SysBox_Body", W, Hh, D, x=neg(half(W)), y=neg(half(Hh)))
-    inset = mul(W, 0.08)
-    iw, ih = sub(W, mul(inset, 2)), sub(Hh, mul(inset, 2))
-    recess = ctx.box("SysBox_Recess", iw, ih, mul(D, 0.12), x=neg(half(iw)), y=neg(half(ih)), z=sub(D, mul(D, 0.12)))
-    body = ctx.cut("SysBox_Cut", box, recess)
-    ribs = []
-    for k, a in enumerate((42, -42)):
-        rot = App.Rotation(V(0, 0, 1), a)
-        Ld = f"(sqrt({W} ^ 2 + {Hh} ^ 2) * 0.8)"
-        rib = ctx.box(f"SysBox_X{k+1}", mul(W, 0.06), Ld, mul(D, 0.12), rot=rot)
-        m = rot.toMatrix()
-        rib.setExpression(".Placement.Base.x", f"({m.A[0]:.6f} * (-{W} * 0.03) + {m.A[1]:.6f} * (-{Ld} / 2))")
-        rib.setExpression(".Placement.Base.y", f"({m.A[4]:.6f} * (-{W} * 0.03) + {m.A[5]:.6f} * (-{Ld} / 2))")
-        rib.setExpression(".Placement.Base.z", sub(D, mul(D, 0.12)))
-        clip = ctx.box(f"SysBox_Clip{k+1}", iw, ih, D, x=neg(half(iw)), y=neg(half(ih)))
-        ribs.append(ctx.common(f"SysBox_XClip{k+1}", rib, clip))
-    body = ctx.fuse("SysBox_WithX", [body] + ribs)
+    body = box
+    pieces = []
+    if hollow:
+        xi, yi = Wn / 2 - SYSBOX_WALL, Hn / 2 - SYSBOX_WALL          # inner faces of the shell
+        xr, yr = Wn / 2 - SYSBOX_LID_EDGE, Hn / 2 - SYSBOX_LID_EDGE  # the lid's own footprint
+        z_in = Dn - lid_t                                            # the lid's inner face
+        cav = ctx.box("SysBox_Cavity", 2 * xi, 2 * yi, cav_d + 1, x=-xi, y=-yi, z=back)
+        body = ctx.cut("SysBox_Hollow", body, cav)
+        # rabbet: the lid drops in flush and lands on the ledge the cavity leaves all round
+        rab = ctx.box("SysBox_Rabbet", 2 * xr, 2 * yr, lid_t + 1, x=-xr, y=-yr, z=z_in)
+        body = ctx.cut("SysBox_Seat", body, rab)
+        # catch bar across the top of the opening; the latch tongue turns in behind it
+        TL, TW, TT = SYSBOX_TONGUE
+        y_c = -yi + TL / 2 + 1.5                        # latch centre, tongue clears the top wall
+        bar = ctx.box("SysBox_CatchBar", 2 * xi, SYSBOX_BAR_DROP, SYSBOX_BAR,
+                      x=-xi, y=-yi, z=z_in - SYSBOX_BAR)
+        body = ctx.fuse("SysBox_Barred", [body, bar])
+        slot = ctx.box("SysBox_BarSlot", TW + 0.8, TL + 0.8, SYSBOX_BAR + 2,
+                       x=-(TW + 0.8) / 2, y=y_c - (TL + 0.8) / 2, z=z_in - SYSBOX_BAR - 1)
+        body = ctx.cut("SysBox_BarSlotted", body, slot)
+        # cable ports through the back wall, high up and wide of the spine (which is only
+        # SpineDiameter across, so +-32 mm clears it)
+        for k, px in enumerate((-55.0, -32.0, 32.0, 55.0)):
+            port = ctx.cylinder(f"SysBox_Port{k+1}", SYSBOX_PORT, back + 2,
+                                x=px, y=-yi + SYSBOX_PORT + 2.0, z=-1)
+            body = ctx.cut(f"SysBox_Ported{k+1}", body, port)
+        pieces += _sysbox_lid(ctx, Wn, Hn, Dn, rd, lid_t, xr, yr, y_c)
+    else:
+        inset = mul(W, 0.08)
+        iw, ih = sub(W, mul(inset, 2)), sub(Hh, mul(inset, 2))
+        recess = ctx.box("SysBox_Recess", iw, ih, mul(D, 0.12),
+                         x=neg(half(iw)), y=neg(half(ih)), z=sub(D, mul(D, 0.12)))
+        body = ctx.cut("SysBox_Cut", body, recess)
+        body = ctx.fuse("SysBox_WithX", [body] + _sysbox_x(ctx, "SysBox", Wn, Hn, Dn, rd))
     # cable loops on top (local -Y is up)
     loops = []
     for k, fx in enumerate((-0.3, 0.0, 0.3)):
@@ -1072,7 +1123,72 @@ def build_systembox(ctx):
     socks, _ = ctx.joint_pattern("SysBox_Sockets", pad_face, pad_face_n, "socket")
     out = ctx.cut("SystemBox", body, socks)
     out.Label = "SystemBox"
-    return [("SystemBox", out)]
+    if hollow:
+        print(f"[mimic]   SystemBox: hollow, cavity {2*(Wn/2-SYSBOX_WALL):.0f} x "
+              f"{2*(Hn/2-SYSBOX_WALL):.0f} x {cav_d:.0f} mm "
+              f"({2*(Wn/2-SYSBOX_WALL) * 2*(Hn/2-SYSBOX_WALL) * cav_d / 1e6:.2f} L), back wall {back:.0f}")
+    else:
+        print(f"[mimic]   SystemBox: solid (cavity would be {cav_d:.0f} mm deep)")
+    return [("SystemBox", out)] + pieces
+
+
+def _sysbox_x(ctx, tag, Wn, Hn, Dn, rd):
+    """The X across the sunken panel, as two clipped bars."""
+    out = []
+    iw, ih = Wn - 2 * Wn * 0.08, Hn - 2 * Wn * 0.08   # the panel's inset is 8% of the WIDTH
+    Ld = math.hypot(Wn, Hn) * 0.8
+    for k, a in enumerate((42, -42)):
+        rot = App.Rotation(V(0, 0, 1), a)
+        m = rot.toMatrix()
+        bw = Wn * 0.06
+        rib = ctx.box(f"{tag}_X{k+1}", bw, Ld, rd, rot=rot)
+        ctx.place(rib, x=m.A[0] * (-bw / 2) + m.A[1] * (-Ld / 2),
+                  y=m.A[4] * (-bw / 2) + m.A[5] * (-Ld / 2), z=Dn - rd)
+        clip = ctx.box(f"{tag}_Clip{k+1}", iw, ih, Dn, x=-iw / 2, y=-ih / 2)
+        out.append(ctx.common(f"{tag}_XClip{k+1}", rib, clip))
+    return out
+
+
+def _sysbox_lid(ctx, Wn, Hn, Dn, rd, lid_t, xr, yr, y_c):
+    """Front lid + the quarter-turn latch that holds it.  Modelled closed and locked."""
+    TL, TW, TT = SYSBOX_TONGUE
+    FD, FT = SYSBOX_FLANGE
+    z_in = Dn - lid_t
+    lw, lh = 2 * (xr - SYSBOX_CLEAR), 2 * (yr - SYSBOX_CLEAR)
+    lid = ctx.box("Lid_Slab", lw, lh, lid_t, x=-lw / 2, y=-lh / 2, z=z_in)
+    iw, ih = Wn - 2 * Wn * 0.08, Hn - 2 * Wn * 0.08
+    rec = ctx.box("Lid_Recess", iw, ih, rd + 1, x=-iw / 2, y=-ih / 2, z=Dn - rd)
+    lid = ctx.cut("Lid_Panel", lid, rec)
+    lid = ctx.fuse("Lid_WithX", [lid] + _sysbox_x(ctx, "Lid", Wn, Hn, Dn, rd))
+    # vents low in the panel.  The lid is a 17 mm deep plug with 0.35 mm of clearance, so it
+    # cannot be tilted or levered out -- these are what you hook a finger through to pull it.
+    for k, vy in enumerate((0.0, SYSBOX_VENT[1] * 2.2, SYSBOX_VENT[1] * 4.4)):
+        vw, vh = SYSBOX_VENT
+        v = ctx.box(f"Lid_Vent{k+1}", vw, vh, lid_t + 2,
+                    x=-vw / 2, y=lh / 2 - SYSBOX_VENT[1] * 6.0 + vy, z=z_in - 1)
+        lid = ctx.cut(f"Lid_Vented{k+1}", lid, v)
+    # the latch passes through: a slot for the tongue (it goes in upright) and a counterbore
+    # that drops the knob flush into the panel
+    sl = ctx.box("Lid_LatchSlot", TW + 0.8, TL + 0.8, lid_t + 2,
+                 x=-(TW + 0.8) / 2, y=y_c - (TL + 0.8) / 2, z=z_in - 1)
+    lid = ctx.cut("Lid_Slotted", lid, sl)
+    # the knob seats on the floor of the sunken panel, not the outer face: that floor is what
+    # its flange clamps against, and it is 0.1 mm away, so the lid has no lift in it
+    z_p = Dn - rd
+    cb = ctx.cylinder("Lid_Counterbore", FD / 2 + 0.3, FT + 1, x=0, y=y_c, z=z_p - FT)
+    lid = ctx.cut("SystemBoxLid", lid, cb)
+    lid.Label = "SystemBoxLid"
+    # knob: flange in the counterbore, stem through lid and catch bar, tongue turned across
+    fl = ctx.cylinder("Latch_Flange", FD / 2, FT - 0.2, x=0, y=y_c, z=z_p - FT + 0.1)
+    grip = ctx.box("Latch_Grip", FD * 0.8, 5.0, 2.5, x=-FD * 0.4, y=y_c - 2.5, z=z_p - 0.2)
+    stem_z = z_in - SYSBOX_BAR - 0.4
+    # +1 so the stem runs into the flange: the flange is dropped 0.1 mm for counterbore
+    # clearance, and ending the stem exactly at Dn - FT left them 0.1 mm apart -- two bodies
+    stem = ctx.cylinder("Latch_Stem", SYSBOX_STEM / 2, z_p - FT + 1.0 - stem_z, x=0, y=y_c, z=stem_z)
+    tongue = ctx.box("Latch_Tongue", TL, TW, TT, x=-TL / 2, y=y_c - TW / 2, z=stem_z - TT)
+    latch = ctx.fuse("SystemBoxLatch", [fl, grip, stem, tongue])
+    latch.Label = "SystemBoxLatch"
+    return [("SystemBoxLid", lid), ("SystemBoxLatch", latch)]
 
 # ============================================================== hands
 def build_hand_l(ctx): return _hand(ctx, "HandL", -1)

@@ -862,9 +862,25 @@ def build_spine(ctx):
     L = S("SpineLength"); Ln = ctx.s("SpineLength")
     N = int(ctx.v["VertebraCount"])
     extras = []
+    verts = []
     for k in range(N):
-        extras.append(ctx.cylinder(f"Spine_Vert{k+1}", half(S("VertebraDiameter")), mul(SD, 0.5),
-                                   z=f"({L} * {(k + 0.5) / N:.4f} - {SD} * 0.25)"))
+        v_ = ctx.cylinder(f"Spine_Vert{k+1}", half(S("VertebraDiameter")), mul(SD, 0.5),
+                          z=f"({L} * {(k + 0.5) / N:.4f} - {SD} * 0.25)")
+        z0n = Ln * (k + 0.5) / N - sdn * 0.25
+        verts.append((k, z0n, z0n + sdn * 0.5, v_))
+        extras.append(v_)
+    # A vertebra is VertebraDiameter across against the column's SpineDiameter, so it stands
+    # proud of the pad plane -- 15 mm at life size -- and the one at the box's height was buried
+    # 17 cm3 deep in the back of the system box.  Relieve those flush with the pad face.
+    z_box = Ln + ctx.s("HubHeight") - ctx.s("ShoulderDrop") - ctx.s("SystemBoxDrop") - ctx.s("SystemBoxHeight") / 2
+    hw, hh = ctx.s("SystemBoxWidth") / 2 + 1.0, ctx.s("SystemBoxHeight") / 2 + 1.0
+    for k, z0n, z1n, v_ in verts:
+        if z1n < z_box - hh or z0n > z_box + hh:
+            continue
+        rel = ctx.box(f"Spine_BoxRelief{k+1}", 2 * hw, BIG, 2 * hh,
+                      x=-hw, y=sdn / 2, z=z_box - hh)
+        trimmed = ctx.cut(f"Spine_Vert{k+1}Relief", v_, rel)
+        extras[extras.index(v_)] = trimmed
     # system-box pad: flat face facing +Y at y = SD * 0.9
     pad_face = mul(SD, 0.8); pad_face_n = sdn * 0.8
     # box top sits at T1: pad centre = T1 height - half the box height
@@ -951,12 +967,47 @@ def _yoke(ctx, name, kind, width, ball, face_dia):
             E = along(B, f"(({c_e} + {CL_e} * 0.4) / {udn:.6f})", u)
             En = g["B"] - u * ((g["c"] + g["CL"] * 0.4) / udn)
             f.append(bar(ctx, f"{name}_{tag}{side}", half(YB), P, E, Pn, En))
+            g.setdefault("bar_objs", {})[tag] = f[-1]      # _yoke_pieces splits the pad bar
         # connector disc on the bisector: from B - (c + CL) n  to  F = B - c n
         base = along(B, f"({c_e} + {CL_e})", n)
         f.append(ctx.cylinder(f"{name}_Disc{side}", half(face_dia), CL_e,
                               x=base[0], y=base[1], z=base[2], rot=App.Rotation(V(0, 0, 1), n)))
         g["F_expr"] = along(B, c_e, n)
     return col, arms, geoms, x_pad, x_padn, collars, knuckle
+
+YOKE_STUB = 36.0        # mm of the pad bar that stays with the column, along the bar's own axis
+# Key-to-slot, per face.  A shallow dovetail multiplies this into sideways slop -- clearance
+# divided by the tangent of the flank angle -- so the flanks below are steep (23 deg, not 13).
+YOKE_KEY_CLEAR = 0.2
+
+
+def _bowtie(cy, z0, z1, a, wy, ey):
+    """Bowtie prism on x=0: half-length a, waist half-width wy, ends half-width ey, z0 to z1.
+    Narrow in the middle and wide at the ends, so the halves it spans cannot pull apart in x."""
+    p = [V(-a, cy - ey, z0), V(0, cy - wy, z0), V(a, cy - ey, z0),
+         V(a, cy + ey, z0), V(0, cy + wy, z0), V(-a, cy + ey, z0)]
+    return Part.Face(Part.makePolygon(p + [p[0]])).extrude(V(0, 0, z1 - z0))
+
+
+def _yoke_key(ctx, name, label, geoms, ybn):
+    """ArmL and ArmR meet at x=0 over the control box with nothing holding them together.  A plain
+    peg and socket there would close a loop: you cannot turn an arm's bayonet home while its front
+    end is already captured on the other arm.  So the centre is tied by a separate bowtie key,
+    dropped in from above once both arms are turned home -- its dovetail flanks are what stop the
+    two halves spreading, and it turns two cantilevers into an arch that braces itself."""
+    jn = [b[1] for b in geoms["R"]["bars"] if b[4] == "junction"]
+    if not jn:
+        return None, None
+    J, c = jn[0], YOKE_KEY_CLEAR
+    a, wy, ey = ybn * 0.5, ybn * 0.13, ybn * 0.34
+    z0, z1 = J.z - ybn * 0.4, J.z + ybn * 1.3
+    tools = {s: ctx.obj("Part::Feature", f"{name}_KeySlot{s}",
+                        Shape=_bowtie(J.y, z0, z1, a + c, wy + c, ey + c)) for s in ("L", "R")}
+    key = ctx.obj("Part::Feature", f"{label}Key",
+                  Shape=_bowtie(J.y, z0, J.z + ybn * 0.95, a, wy, ey))
+    key.Label = f"{label}-Key"
+    return tools, (key.Label, key)
+
 
 def _yoke_pieces(ctx, name, label, col, arms, geoms, x_pad, collars, face_dia, face_dia_n, end_pegs, end_socks, knuckle=()):
     """Fuse a yoke into one piece, or split it into Column + ArmL + ArmR (pegged at the pads)
@@ -982,28 +1033,67 @@ def _yoke_pieces(ctx, name, label, col, arms, geoms, x_pad, collars, face_dia, f
     # The bars' INNER halves have to stay with the column.  Without them the column is the collars
     # plus a junction knuckle that hangs out in front connected to nothing -- at life size that came
     # out as a 142 cm3 lump floating beside the part.
+    #
+    # Pass 1: the pad joints.  A side with ONE pad bar (the shoulder) puts its joint on that bar's
+    # own axis: the column keeps a stub and the boss sits on its end face, concentric with the bar.
+    # Bored along X as it was, 26% of a 15 mm bayonet hangs outside a 30 mm bar leaving the column
+    # at 22.5 deg, so the channels the lugs run in are partly missing and it cannot be turned home.
+    # A side with SEVERAL pad bars (the pelvis) cannot use a bayonet at all -- two quarter turns
+    # about two different axes is not a motion a rigid body has -- so those stay on X, where one
+    # straight push seats them all, and become permanent collets.
+    arm_socks = {}
+    for side, sx, rot in (("L", -1, ROT_NX), ("R", 1, ROT_PX)):
+        g = geoms[side]
+        pads = [b for b in g["bars"] if b[4] == "pad"]
+        socks = []
+        for (tag, Pn, u, _zn, _kd) in pads:
+            if len(pads) == 1:
+                Xc = Pn + u * YOKE_STUB
+                jrot, perm = App.Rotation(V(0, 0, 1), u), False
+                col.append(ctx.cylinder(f"{name}_Stub{side}", ybn / 2, YOKE_STUB,
+                                        x=Pn.x, y=Pn.y, z=Pn.z, rot=jrot))
+                back = Pn - u * 2.0
+                trim = ctx.cylinder(f"{name}_Trim{side}", ybn, YOKE_STUB + 2.0,
+                                    x=back.x, y=back.y, z=back.z, rot=jrot)
+                old = g["bar_objs"][tag]
+                new = ctx.cut(f"{name}_Bar{side}Trim", old, trim)
+                arms[side] = [new if o is old else o for o in arms[side]]
+            else:
+                xpn = pads[0][1].x / 0.98
+                tcross = (xpn - Pn.x) / u.x if abs(u.x) > 1e-9 else 0.0
+                Xc = Pn + u * tcross
+                jrot, perm = rot, True
+                # trim the bar at the cut plane.  It starts 2% inside the pad, so left whole it
+                # buries itself in the column -- 5.7 cm3 of the two of them on the pelvis, which
+                # simply cannot be assembled.
+                old = g["bar_objs"][tag]
+                cutb = ctx.box(f"{name}_Trim{side}{tag}", BIG / 2, BIG, BIG,
+                               x=(xpn - BIG / 2 if sx > 0 else xpn), y=-BIG / 2, z=-BIG / 2)
+                new = ctx.cut(f"{name}_Bar{side}{tag}Trim", old, cutb)
+                arms[side] = [new if o is old else o for o in arms[side]]
+            s_, _ = ctx.joint_pattern(f"{name}_Arm{side}{tag}Sockets", YB, ybn, "socket",
+                                      rot=jrot, permanent=perm)
+            s_.Placement = App.Placement(Xc, jrot)
+            socks.append(s_)
+            p_, _ = ctx.joint_pattern(f"{name}_Col{side}{tag}Pegs", YB, ybn, "peg",
+                                      rot=jrot, permanent=perm)
+            p_.Placement = App.Placement(Xc, jrot)
+            col_pegs.append(p_)
+        arm_socks[side] = socks
+    # Pass 2: the arms themselves, tied to each other at the centre by the key
+    key_tools, key_piece = _yoke_key(ctx, name, label, geoms, ybn)
     for side, sx, rot in (("L", -1, ROT_NX), ("R", 1, ROT_PX)):
         keep = ctx.box(f"{name}_Arm{side}Keep", BIG / 2, BIG, BIG,
                        x=(-BIG / 2 if sx < 0 else 0), y=-BIG / 2, z=-BIG / 2)
         armbody = ctx.fuse(f"{name}_Arm{side}Body", arms[side] + list(knuckle))
         arm = ctx.common(f"{name}_Arm{side}Cut", armbody, keep)
-        socks = []
-        # pegs where each bar crosses the cut plane x = +/-x_pad (numeric crossing along the bar line)
-        xpn = geoms[side]["bars"][0][1].x / 0.98
-        for (tag, Pn, u, _zn, _kd), (_t, z) in zip(geoms[side]["bars"], collars):
-            if _kd != "pad":
-                continue
-            tcross = (xpn - Pn.x) / u.x if abs(u.x) > 1e-9 else 0.0
-            Xc = Pn + u * tcross
-            s_, _ = ctx.joint_pattern(f"{name}_Arm{side}{tag}Sockets", YB, ybn, "socket", rot=rot)
-            s_.Placement = App.Placement(Xc, rot)
-            socks.append(s_)
-            p_, _ = ctx.joint_pattern(f"{name}_Col{side}{tag}Pegs", YB, ybn, "peg", rot=rot)
-            p_.Placement = App.Placement(Xc, rot)
-            col_pegs.append(p_)
-        arm = ctx.cut(f"{name}_Arm{side}S", arm, ctx.fuse(f"{name}_Arm{side}SocketsAll", socks))
+        if key_tools is not None:
+            arm = ctx.cut(f"{name}_Arm{side}Key", arm, key_tools[side])
+        arm = ctx.cut(f"{name}_Arm{side}S", arm, ctx.fuse(f"{name}_Arm{side}SocketsAll", arm_socks[side]))
         arm = ctx.fuse(f"{label}-Arm{side}", [arm, ball_pegs[side]])
         arm.Label = f"{label}-Arm{side}"; pieces.append((arm.Label, arm))
+    if key_piece is not None:
+        pieces.append(key_piece)
     body = ctx.fuse(f"{name}_ColBody", col)
     for i, s_ in enumerate(end_socks):
         body = ctx.cut(f"{name}_ColS{i+1}", body, s_)

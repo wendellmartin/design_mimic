@@ -5,6 +5,7 @@ thick vertebrae; the same triangular yoke block at shoulders and hips; no ribs, 
 the heart; three-digit hands with a thumb; three-claw feet.
 """
 import math
+import os
 import FreeCAD as App
 import Part
 from mimic_lib import R, S, half, mul, add, sub, neg, peg_count, split_count
@@ -933,7 +934,9 @@ def _yoke(ctx, name, kind, width, ball, face_dia):
     for tag, z in collars:
         if kinds[tag] == "junction":
             if kind == "shoulder":
-                jy = add(half(SD), S("SystemBoxDepth")); jz = add(z, half(YB))
+                from mimic_geom import JUNC_FWD, JUNC_RISE          # must match junction()
+                jy = add(half(SD), mul(S("SystemBoxDepth"), JUNC_FWD))
+                jz = add(z, mul(YB, JUNC_RISE))
             else:
                 jy = S("PelvisForward"); jz = z
             junc = (jy, jz)
@@ -970,11 +973,15 @@ def _yoke(ctx, name, kind, width, ball, face_dia):
             g.setdefault("bar_objs", {})[tag] = f[-1]      # _yoke_pieces splits the pad bar
         # connector disc on the bisector: from B - (c + CL) n  to  F = B - c n
         base = along(B, f"({c_e} + {CL_e})", n)
-        f.append(ctx.cylinder(f"{name}_Disc{side}", half(face_dia), CL_e,
+        # The disc only has to swallow the two bars where they land on it -- at life size that is
+        # 73.8 mm against the 88 mm mating face -- and the bayonet needs 45.6.  Shrinking it is
+        # what keeps its rim out of the upper arm's cup, which flares toward the same ball.
+        f.append(ctx.cylinder(f"{name}_Disc{side}", mul(face_dia, YOKE_DISC_FRAC / 2), CL_e,
                               x=base[0], y=base[1], z=base[2], rot=App.Rotation(V(0, 0, 1), n)))
         g["F_expr"] = along(B, c_e, n)
     return col, arms, geoms, x_pad, x_padn, collars, knuckle
 
+YOKE_DISC_FRAC = 0.86   # disc diameter as a fraction of the ball's mating face
 YOKE_STUB = 36.0        # mm of the pad bar that stays with the column, along the bar's own axis
 # Key-to-slot, per face.  A shallow dovetail multiplies this into sideways slop -- clearance
 # divided by the tangent of the flank angle -- so the flanks below are steep (23 deg, not 13).
@@ -1009,7 +1016,7 @@ def _yoke_key(ctx, name, label, geoms, ybn):
     return tools, (key.Label, key)
 
 
-def _yoke_pieces(ctx, name, label, col, arms, geoms, x_pad, collars, face_dia, face_dia_n, end_pegs, end_socks, knuckle=()):
+def _yoke_pieces(ctx, name, label, col, arms, geoms, x_pad, collars, face_dia, face_dia_n, end_pegs, end_socks, knuckle=(), arm_cuts=None):
     """Fuse a yoke into one piece, or split it into Column + ArmL + ArmR (pegged at the pads)
     when it is wider than the build cube."""
     YB = S("YokeBar"); ybn = ctx.s("YokeBar")
@@ -1089,6 +1096,8 @@ def _yoke_pieces(ctx, name, label, col, arms, geoms, x_pad, collars, face_dia, f
         arm = ctx.common(f"{name}_Arm{side}Cut", armbody, keep)
         if key_tools is not None:
             arm = ctx.cut(f"{name}_Arm{side}Key", arm, key_tools[side])
+        for k, tool in enumerate((arm_cuts or {}).get(side, [])):
+            arm = ctx.cut(f"{name}_Arm{side}Relief{k+1}", arm, tool)
         arm = ctx.cut(f"{name}_Arm{side}S", arm, ctx.fuse(f"{name}_Arm{side}SocketsAll", arm_socks[side]))
         arm = ctx.fuse(f"{label}-Arm{side}", [arm, ball_pegs[side]])
         arm.Label = f"{label}-Arm{side}"; pieces.append((arm.Label, arm))
@@ -1112,7 +1121,52 @@ def build_shoulderyoke(ctx):
     neck_pegs, _ = ctx.joint_pattern("Yoke_NeckPegs", SD, sdn, "peg", z=HH)
     spine_socks, _ = ctx.joint_pattern("Yoke_SpineSockets", SD, sdn, "socket")
     return _yoke_pieces(ctx, "Yoke", "ShoulderYoke", col, arms, geoms, x_pad, collars,
-                        sh_face, sh_face_n, [neck_pegs], [spine_socks], knuckle=knuckle)
+                        sh_face, sh_face_n, [neck_pegs], [spine_socks], knuckle=knuckle,
+                        arm_cuts=_yoke_relief(ctx, geoms, sdn))
+
+
+# Both shoulder interferences can be answered on the arms or on the other part.  The arms are
+# being reprinted anyway, so relieving them is the free side of the trade; set MIMIC_YOKE_RELIEF=0
+# to build the arms as they were and fix the gear and the box instead.
+YOKE_RELIEF = os.environ.get("MIMIC_YOKE_RELIEF", "1") != "0"
+YOKE_LID_CLEAR = 1.0
+YOKE_GEAR_CLEAR = 0.8
+
+
+def _yoke_relief(ctx, geoms, sdn):
+    """Cuts that keep the shoulder arms out of two things they currently foul: the path the
+    battery door takes coming forward out of the chest, and the gear crest on the shoulder ball."""
+    if not YOKE_RELIEF:
+        return None
+    import mimic_parts
+    cuts = {"L": [], "R": []}
+    Wn, Hn, Dn = ctx.s("SystemBoxWidth"), ctx.s("SystemBoxHeight"), ctx.s("SystemBoxDepth")
+    lid_t = Dn * 0.12 + SYSBOX_LID_FLOOR
+    if Dn - max(SYSBOX_WALL, 22.0) - lid_t >= SYSBOX_MIN_CAV:        # only when the box has a lid
+        bz = ctx.s("HubHeight") - ctx.s("ShoulderDrop") - ctx.s("SystemBoxDrop") - Hn / 2
+        hx = Wn / 2 - SYSBOX_LID_EDGE + YOKE_LID_CLEAR
+        hz = Hn / 2 - SYSBOX_LID_EDGE + YOKE_LID_CLEAR
+        y0 = sdn / 2 + Dn - lid_t - YOKE_LID_CLEAR
+        for side in ("L", "R"):
+            cuts[side].append(ctx.box(f"Yoke_LidPath{side}", 2 * hx, BIG, 2 * hz,
+                                      x=-hx, y=y0, z=bz - hz))
+    # the crest runs in the coronal plane about world Y, so in this frame its axis is +Y and its
+    # sector is measured from +Z -- the same angles _shoulder_crest hands the ball
+    r = ctx.s("ShoulderBall") / 2
+    ax, up = V(0, 1, 0), V(0, 0, 1)
+    for side, sx in (("L", -1), ("R", 1)):
+        cr = mimic_parts._shoulder_crest(ctx, sx)
+        th0, th1 = cr["theta0"], cr["theta1"]
+        st = App.Rotation(ax, th0).multVec(up)
+        yd = ax.cross(st)
+        rotc = App.Rotation(App.Matrix(st.x, yd.x, ax.x, 0, st.y, yd.y, ax.y, 0, st.z, yd.z, ax.z, 0, 0, 0, 0, 1))
+        th_e = r * 0.4 + 2 * YOKE_GEAR_CLEAR
+        B = geoms[side]["B"]
+        slot = ctx.cylinder(f"Yoke_GearSlot{side}", r * mimic_parts.GEAR_TIP + YOKE_GEAR_CLEAR, th_e,
+                            x=B.x, y=B.y - th_e / 2, z=B.z, rot=rotc)
+        slot.Angle = th1 - th0
+        cuts[side].append(slot)
+    return cuts
 
 def build_pelvis(ctx):
     """Root of the chain.  Origin at the top of the pelvis spine section (spine mating face), +Z up.
@@ -1203,13 +1257,7 @@ def build_systembox(ctx):
                          x=neg(half(iw)), y=neg(half(ih)), z=sub(D, mul(D, 0.12)))
         body = ctx.cut("SysBox_Cut", body, recess)
         body = ctx.fuse("SysBox_WithX", [body] + _sysbox_x(ctx, "SysBox", Wn, Hn, Dn, rd))
-    # cable loops on top (local -Y is up)
-    loops = []
-    for k, fx in enumerate((-0.3, 0.0, 0.3)):
-        loops.append(ctx.torus(f"SysBox_Cable{k+1}", mul(Hh, 0.18), mul(W, 0.02), angle3=180.0,
-                               x=mul(W, fx), y=neg(half(Hh)), z=mul(D, 0.5),
-                               rot=ROT_YZ.multiply(App.Rotation(V(0, 0, 1), 180))))
-    body = ctx.fuse("SysBox_Cabled", [body] + loops)
+    # (the cable loops that used to stand on the top face are gone: the clavicle rests there)
     socks, _ = ctx.joint_pattern("SysBox_Sockets", pad_face, pad_face_n, "socket")
     out = ctx.cut("SystemBox", body, socks)
     out.Label = "SystemBox"

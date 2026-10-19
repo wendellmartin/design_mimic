@@ -237,7 +237,15 @@ def ball(ctx, name, dia, dia_n, bend=ROT0, detail=True, crest=None):
             for a_, dc, cz in zip("xyz", (dv.x, dv.y, dv.z), (0.0, 0.0, 1.0)):
                 tooth.setExpression(f".Placement.Base.{a_}", f"({c} * {cz} + {rg} * 0.97 * {dc:.6f})")
             crest_feats.append(tooth)
-    out = ctx.fuse(name, [body, pegs] + crest_feats)
+    if crest_feats:
+        # The crest is fused on AFTER the socket was cut and it overhangs the socket mouth, so it
+        # refills the cavity: 2.4 cm3 of it sat inside the shoulder socket and the yoke's bayonet
+        # had nowhere to go.  Re-cut the socket over the finished body.
+        whole = ctx.fuse(f"{name}_All", [body, pegs] + crest_feats)
+        socks2, _ = ctx.joint_pattern(f"{name}_Sockets2", face, face_n, "socket")
+        out = ctx.cut(name, whole, socks2) if socks2 is not None else whole
+    else:
+        out = ctx.fuse(name, [body, pegs])
     out.Label = name
     return [(name, out)]
 

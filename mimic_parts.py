@@ -241,7 +241,11 @@ def ball(ctx, name, dia, dia_n, bend=ROT0, detail=True, crest=None):
         # The crest is fused on AFTER the socket was cut and it overhangs the socket mouth, so it
         # refills the cavity: 2.4 cm3 of it sat inside the shoulder socket and the yoke's bayonet
         # had nowhere to go.  Re-cut the socket over the finished body.
-        whole = ctx.fuse(f"{name}_All", [body, pegs] + crest_feats)
+        # fuse the sector and its teeth into one gear first: thrown at the body all at once, the
+        # tooth/sector contacts are tangential enough that OCC returns an invalid shape (the right
+        # shoulder started doing exactly that when the clavicle move changed the crest's angles)
+        gear = ctx.fuse(f"{name}_Gear", crest_feats) if len(crest_feats) > 1 else crest_feats[0]
+        whole = ctx.fuse(f"{name}_All", [body, pegs, gear])
         socks2, _ = ctx.joint_pattern(f"{name}_Sockets2", face, face_n, "socket")
         out = ctx.cut(name, whole, socks2) if socks2 is not None else whole
     else:
@@ -307,10 +311,13 @@ def _shoulder_crest(ctx, sx):
     th_p = flat_edge(App.Vector(0, 0, -1))                      # socket flat (proximal, faces the yoke)
     th_d = flat_edge(ball_bend(ctx.v, "shoulder", sx).multVec(App.Vector(0, 0, 1)))   # humerus flat
     th_p = (th_p + 180) % 360 - 180; th_d = (th_d + 180) % 360 - 180
+    # Leeway at BOTH flats.  It used to be applied only at the socket end, which left the sector's
+    # other radial face sitting exactly in the humerus flat's plane -- coplanar faces, and OCC
+    # returned an invalid shape for the whole ball the moment the clavicle move nudged the angles.
     if th_p < th_d:
-        th0, th1 = th_p + CREST_LEEWAY_DEG, th_d
+        th0, th1 = th_p + CREST_LEEWAY_DEG, th_d - CREST_LEEWAY_DEG
     else:
-        th0, th1 = th_d, th_p - CREST_LEEWAY_DEG
+        th0, th1 = th_d + CREST_LEEWAY_DEG, th_p - CREST_LEEWAY_DEG
     return {"axis": ax, "up": up, "theta0": th0, "theta1": th1}
 def build_shoulderball_l(ctx):
     from mimic_geom import ball_bend

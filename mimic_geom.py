@@ -38,8 +38,10 @@ def pad_x(v):
 # The clavicle centre used to sit on the box's FRONT face, which is the battery door, and half a
 # bar up, which buried the knuckle in the box's top.  Pulled back onto the shell behind the lid and
 # raised so the knuckle rests on the top face instead of sinking into it.  _yoke mirrors these.
-JUNC_FWD = 0.54     # of SystemBoxDepth, ahead of the spine surface
-JUNC_RISE = 0.72    # of YokeBar, above the junction collar (0.7 = the knuckle's own radius)
+JUNC_BACK = 0.7     # of YokeBar behind the box's front face: the knuckle's own radius, so the
+                    # knuckle's front is flush with the front of the box
+JUNC_RISE = 0.6     # of YokeBar above the box's top face, which is the junction collar height:
+                    # 0.6 is the thick connector's radius, so those bars run tangent to the top
 
 
 def junction(v, kind, z):
@@ -47,7 +49,7 @@ def junction(v, kind, z):
     half a bar up.  Pelvis: PelvisForward ahead of the spine at the S5 height."""
     s = lambda n: v[n] * v["Scale"]
     if kind == "shoulder":
-        return V(0, s("SpineDiameter") / 2 + s("SystemBoxDepth") * JUNC_FWD,
+        return V(0, s("SpineDiameter") / 2 + s("SystemBoxDepth") - s("YokeBar") * JUNC_BACK,
                  z + s("YokeBar") * JUNC_RISE)
     return V(0, s("PelvisForward"), z)
 

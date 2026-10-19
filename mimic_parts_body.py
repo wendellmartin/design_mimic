@@ -934,8 +934,8 @@ def _yoke(ctx, name, kind, width, ball, face_dia):
     for tag, z in collars:
         if kinds[tag] == "junction":
             if kind == "shoulder":
-                from mimic_geom import JUNC_FWD, JUNC_RISE          # must match junction()
-                jy = add(half(SD), mul(S("SystemBoxDepth"), JUNC_FWD))
+                from mimic_geom import JUNC_BACK, JUNC_RISE         # must match junction()
+                jy = sub(add(half(SD), S("SystemBoxDepth")), mul(YB, JUNC_BACK))
                 jz = add(z, mul(YB, JUNC_RISE))
             else:
                 jy = S("PelvisForward"); jz = z
@@ -1140,6 +1140,12 @@ def _yoke_relief(ctx, geoms, sdn):
         return None
     import mimic_parts
     cuts = {"L": [], "R": []}
+    # The knuckle is a sphere sitting on the box's top face, so it would dig a round bite out of
+    # it.  Flatten its underside on that face instead: nothing else in the arm reaches this low.
+    top = ctx.s("HubHeight") - ctx.s("ShoulderDrop") - ctx.s("SystemBoxDrop")
+    for side in ("L", "R"):
+        cuts[side].append(ctx.box(f"Yoke_SitFlat{side}", BIG, BIG, BIG,
+                                  x=-BIG / 2, y=-BIG / 2, z=top - BIG))
     Wn, Hn, Dn = ctx.s("SystemBoxWidth"), ctx.s("SystemBoxHeight"), ctx.s("SystemBoxDepth")
     lid_t = Dn * 0.12 + SYSBOX_LID_FLOOR
     if Dn - max(SYSBOX_WALL, 22.0) - lid_t >= SYSBOX_MIN_CAV:        # only when the box has a lid

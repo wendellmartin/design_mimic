@@ -5,7 +5,7 @@ expression-linked); re-run build.py after changing proportions or pose.  World: 
 """
 import os
 import FreeCAD as App
-from mimic_geom import yoke_side, ball_bend
+from mimic_geom import yoke_side, ball_bend, cup_prox_frac
 
 ROT0 = App.Rotation()
 ROT_PX = App.Rotation(App.Vector(0, 1, 0), 90)
@@ -20,9 +20,13 @@ def build_assembly(out_dir, v, built):
     def seg_len(L, a, b):
         return s(L) - s(a) / 2 * co - s(b) / 2 * co
 
-    def ball_distal(dia_scaled, bend):
-        c = dia_scaled / 2 * co
-        return P(V(0, 0, c) + bend.multVec(V(0, 0, c)), bend)
+    def ball_distal(dia_scaled, bend, yoke_prox=False):
+        """Frame of the limb hanging off a ball.  A yoke ball's proximal flat is cut further out
+        than its distal one, so the centre is that much deeper -- get this out of step with
+        mimic_parts.ball() and the limb hangs wrong in a way nothing but a measurement shows."""
+        cp = dia_scaled / 2 * (cup_prox_frac(v) if yoke_prox else co)
+        cd = dia_scaled / 2 * co
+        return P(V(0, 0, cp) + bend.multVec(V(0, 0, cd)), bend)
 
     def seg_distal(length):
         return P(V(0, 0, length), ROT0)
@@ -47,7 +51,7 @@ def build_assembly(out_dir, v, built):
         gh = yoke_side(v, "pelvis", sx)
         hip = world["Pelvis"] * P(gh["F"], gh["rot"])
         world[f"HipBall{side}"] = hip
-        thigh = hip * ball_distal(s("HipBall"), ball_bend(v, "pelvis", sx))
+        thigh = hip * ball_distal(s("HipBall"), ball_bend(v, "pelvis", sx), yoke_prox=True)
         world[f"Thigh{side}"] = thigh
         knee = thigh * seg_distal(seg_len("ThighLength", "HipBall", "KneeBall"))
         world[f"KneeBall{side}"] = knee
@@ -60,7 +64,7 @@ def build_assembly(out_dir, v, built):
         gs = yoke_side(v, "shoulder", sx)
         sh = world["ShoulderYoke"] * P(gs["F"], gs["rot"])
         world[f"ShoulderBall{side}"] = sh
-        ua = sh * ball_distal(s("ShoulderBall"), ball_bend(v, "shoulder", sx))
+        ua = sh * ball_distal(s("ShoulderBall"), ball_bend(v, "shoulder", sx), yoke_prox=True)
         world[f"UpperArm{side}"] = ua
         el = ua * seg_distal(seg_len("UpperArmLength", "ShoulderBall", "ElbowBall"))
         world[f"ElbowBall{side}"] = el

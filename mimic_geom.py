@@ -44,6 +44,20 @@ JUNC_RISE = 0.6     # of YokeBar above the box's top face, which is the junction
                     # 0.6 is the thick connector's radius, so those bars run tangent to the top
 
 
+YOKE_DISC_FRAC = 0.86   # the yoke's connector ring, as a fraction of the ball's mating face
+
+
+def cup_prox_frac(v):
+    """How far a yoke ball's PROXIMAL flat sits from its centre, as a fraction of the radius --
+    the same thing JointCupOffset is for every other face, which it replaces on this one.
+
+    The flat is cut where the sphere is exactly as wide as the yoke's ring, so the sphere runs
+    out to meet the ring rather than standing proud of it in a step.  Shrinking the ring to clear
+    the upper arm is what opened that step up in the first place."""
+    f = v["JointCupRatio"] * YOKE_DISC_FRAC
+    return math.sqrt(1.0 - f * f)
+
+
 def junction(v, kind, z):
     """Centre joint the lowest bars start from.  Shoulders: over the control box's top-front edge,
     half a bar up.  Pelvis: PelvisForward ahead of the spine at the S5 height."""
@@ -70,7 +84,7 @@ def yoke_side(v, kind, sx):
         u = B - P; u.normalize()
         bars.append((tag, P, u, z, start))
     n = bars[0][2] + bars[-1][2]; n.normalize()
-    c = s(ball) / 2 * v["JointCupOffset"]
+    c = s(ball) / 2 * cup_prox_frac(v)
     CL = s(ball) * 0.25
     F = B - n * c
     rot = App.Rotation(V(0, 0, 1), n)

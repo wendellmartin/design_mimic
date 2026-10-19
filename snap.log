@@ -1,0 +1,10 @@
+box 693.4 cm3   cover 203.9 cm3 (1 solids)
+assembled clash      :     0.00 mm3
+cover pulled  0.5 mm   : hooks jam on the box     57.8 mm3
+cover pulled  2.0 mm   : hooks jam on the box    296.6 mm3
+cover pulled  6.0 mm   : hooks jam on the box    527.2 mm3
+(reference) cover drawn    6 mm with no release:      0.0 mm3
+cover bbox x -72.7..72.7  z 33.2..90.0
+box   bbox x -75.0..75.0  z 0.0..90.0
+hooks reach to x=72.7, box side wall outer face x=75.0
+DONE

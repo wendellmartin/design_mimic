@@ -161,14 +161,23 @@ def segment(ctx, name, length, length_n, dia, dia_n, prox_face, prox_face_n, dis
     return pieces
 
 # ============================================================== generic ball joint
-def ball(ctx, name, dia, dia_n, bend=ROT0, detail=True, crest=None):
+def ball(ctx, name, dia, dia_n, bend=ROT0, detail=True, crest=None, yoke_prox=False):
     """Sphere with two flat mating faces.  Proximal face at z=0 (sockets), distal face rotated by `bend`
-    (pegs).  Face diameter = dia * JointCupRatio; centre sits JointCupOffset * r above the proximal face."""
+    (pegs).  Face diameter = dia * JointCupRatio; centre sits JointCupOffset * r above the proximal face.
+
+    yoke_prox cuts the PROXIMAL face further out instead -- where the sphere is as wide as the
+    yoke's connector ring -- so the ball runs out to meet the ring instead of standing proud of it.
+    The ball moves outboard by the difference; mimic_geom.cup_prox_frac is the one definition of it
+    and mimic_assembly places the limb from the same number."""
+    from mimic_geom import YOKE_DISC_FRAC, cup_prox_frac
     r = half(dia)
-    c = f"({r} * {R('JointCupOffset')})"
+    co_d = R('JointCupOffset')
+    co_p = (f"sqrt(1 - ({R('JointCupRatio')} * {YOKE_DISC_FRAC}) ^ 2)" if yoke_prox else co_d)
+    c = f"({r} * {co_p})"                      # proximal face to centre
+    cd = f"({r} * {co_d})"                     # centre to distal face
     face = mul(dia, R("JointCupRatio"))
     face_n = dia_n * ctx.v["JointCupRatio"]
-    c_n = dia_n / 2 * ctx.v["JointCupOffset"]
+    c_n = dia_n / 2 * (cup_prox_frac(ctx.v) if yoke_prox else ctx.v["JointCupOffset"])
     ax = up = None
     if crest is not None:
         ax = App.Vector(crest["axis"]); ax.normalize()
@@ -186,7 +195,7 @@ def ball(ctx, name, dia, dia_n, bend=ROT0, detail=True, crest=None):
     body = ctx.cut(f"{name}_P", body, below)
     # flatten distal face: a slab beyond the plane at centre + c * d, rotated by bend
     d = bend.multVec(App.Vector(0, 0, 1))
-    dist = {"x": f"({c} * {d.x:.6f})", "y": f"({c} * {d.y:.6f})", "z": f"({c} + {c} * {d.z:.6f})"}
+    dist = {"x": f"({cd} * {d.x:.6f})", "y": f"({cd} * {d.y:.6f})", "z": f"({c} + {cd} * {d.z:.6f})"}
     above = ctx.box(f"{name}_DistTrim", BIG, BIG, BIG, rot=bend)
     # box origin is its corner: shift so its -Z face passes through the distal plane, centred in X/Y
     above.Placement = App.Placement(App.Vector(0, 0, 0), bend)
@@ -278,10 +287,10 @@ def build_upperarm_l(ctx): return _seg(ctx, "UpperArmL", "UpperArmLength", "Uppe
 
 def build_hipball_l(ctx):
     from mimic_geom import ball_bend
-    return ball(ctx, "HipBallL", S("HipBall"), ctx.s("HipBall"), bend=ball_bend(ctx.v, "pelvis", -1))
+    return ball(ctx, "HipBallL", S("HipBall"), ctx.s("HipBall"), bend=ball_bend(ctx.v, "pelvis", -1), yoke_prox=True)
 def build_hipball_r(ctx):
     from mimic_geom import ball_bend
-    return ball(ctx, "HipBallR", S("HipBall"), ctx.s("HipBall"), bend=ball_bend(ctx.v, "pelvis", 1))
+    return ball(ctx, "HipBallR", S("HipBall"), ctx.s("HipBall"), bend=ball_bend(ctx.v, "pelvis", 1), yoke_prox=True)
 def build_kneeball(ctx):
     return ball(ctx, "KneeBall", S("KneeBall"), ctx.s("KneeBall"), bend=App.Rotation(App.Vector(1, 0, 0), ctx.v["KneeBend"]))
 def build_ankleball(ctx):
@@ -296,9 +305,10 @@ def _shoulder_crest(ctx, sx):
     ax = inv.multVec(App.Vector(0, 1, 0)); ax.normalize()
     up = inv.multVec(App.Vector(0, 0, 1)); up = up - ax * up.dot(ax); up.normalize()
     w = ax.cross(up)                                            # direction at theta = +90 deg
+    from mimic_geom import cup_prox_frac
     co = ctx.v["JointCupOffset"]                                # flat sits at c = r * co from the centre
 
-    def flat_edge(n):
+    def flat_edge(n, co=co):
         """Angle (deg from up, about ax) where the flat with outward normal n meets the crest plane,
         taking the intersection nearest the top of the ball."""
         A, B = up.dot(n), w.dot(n)
@@ -308,7 +318,8 @@ def _shoulder_crest(ctx, sx):
         cands = [base + half, base - half]
         return min(cands, key=lambda t: abs((t + 180) % 360 - 180))
 
-    th_p = flat_edge(App.Vector(0, 0, -1))                      # socket flat (proximal, faces the yoke)
+    # the socket flat is cut where the sphere matches the yoke's ring, further out than the rest
+    th_p = flat_edge(App.Vector(0, 0, -1), cup_prox_frac(ctx.v))
     th_d = flat_edge(ball_bend(ctx.v, "shoulder", sx).multVec(App.Vector(0, 0, 1)))   # humerus flat
     th_p = (th_p + 180) % 360 - 180; th_d = (th_d + 180) % 360 - 180
     # Leeway at BOTH flats.  It used to be applied only at the socket end, which left the sector's
@@ -321,10 +332,10 @@ def _shoulder_crest(ctx, sx):
     return {"axis": ax, "up": up, "theta0": th0, "theta1": th1}
 def build_shoulderball_l(ctx):
     from mimic_geom import ball_bend
-    return ball(ctx, "ShoulderBallL", S("ShoulderBall"), ctx.s("ShoulderBall"), bend=ball_bend(ctx.v, "shoulder", -1), crest=_shoulder_crest(ctx, -1))
+    return ball(ctx, "ShoulderBallL", S("ShoulderBall"), ctx.s("ShoulderBall"), bend=ball_bend(ctx.v, "shoulder", -1), crest=_shoulder_crest(ctx, -1), yoke_prox=True)
 def build_shoulderball_r(ctx):
     from mimic_geom import ball_bend
-    return ball(ctx, "ShoulderBallR", S("ShoulderBall"), ctx.s("ShoulderBall"), bend=ball_bend(ctx.v, "shoulder", 1), crest=_shoulder_crest(ctx, 1))
+    return ball(ctx, "ShoulderBallR", S("ShoulderBall"), ctx.s("ShoulderBall"), bend=ball_bend(ctx.v, "shoulder", 1), crest=_shoulder_crest(ctx, 1), yoke_prox=True)
 def build_elbowball(ctx):
     return ball(ctx, "ElbowBall", S("ElbowBall"), ctx.s("ElbowBall"), bend=App.Rotation(App.Vector(1, 0, 0), -ctx.v["ElbowBend"]))
 def build_wristball(ctx):

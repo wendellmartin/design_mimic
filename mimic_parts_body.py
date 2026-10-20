@@ -984,10 +984,30 @@ def _yoke(ctx, name, kind, width, ball, face_dia):
     return col, arms, geoms, x_pad, x_padn, collars, knuckle
 
 from mimic_geom import YOKE_DISC_FRAC        # disc diameter / ball mating face
+# Extra pads past the first become their own strut, so every yoke joint can be a bayonet.
+# Set MIMIC_PELVIS_STRUT=0 to go back to the two press-fit collets per side.
+YOKE_STRUT = os.environ.get("MIMIC_PELVIS_STRUT", "1") != "0"
+STRUT_STUB = 36.0        # column spur the strut plugs into
+STRUT_BORE = 34.0
+STRUT_BACKBORE = 14.0    # how far the bore runs back past the pad face        # its bore: male engagement PLUS room to retract clear of the bayonet
+STRUT_ENGAGE = 16.0      # how far the strut sits inside the sleeve when seated
+STRUT_WALL = 5.0         # sleeve wall
+STRUT_CLEAR = 0.3
+STRUT_BODY = 30.0        # the strut's full-diameter length
 YOKE_STUB = 36.0        # mm of the pad bar that stays with the column, along the bar's own axis
 # Key-to-slot, per face.  A shallow dovetail multiplies this into sideways slop -- clearance
 # divided by the tangent of the flank angle -- so the flanks below are steep (23 deg, not 13).
 YOKE_KEY_CLEAR = 0.2
+
+
+def _strut_fits(g, tag, ybn):
+    """Is the bar long enough for a column spur, a strut and a boss on the arm to carry the
+    socket?  The pelvis S1 bar is 136 mm and this wants 62 of it, which leaves 18."""
+    for t, Pn, u, _z, kd in g["bars"]:
+        if t == tag:
+            reach = (g["B"] - Pn).Length - (g["c"] + g["CL"] * 0.4)
+            return reach - (STRUT_STUB + STRUT_BODY) >= 16.0
+    return False
 
 
 def _bowtie(cy, z0, z1, a, wy, ey):
@@ -1053,13 +1073,14 @@ def _yoke_pieces(ctx, name, label, col, arms, geoms, x_pad, collars, face_dia, f
     # A side with SEVERAL pad bars (the pelvis) cannot use a bayonet at all -- two quarter turns
     # about two different axes is not a motion a rigid body has -- so those stay on X, where one
     # straight push seats them all, and become permanent collets.
-    arm_socks = {}
+    arm_socks, struts, col_cuts = {}, [], []
+    extra_cuts = {"L": [], "R": []}
     for side, sx, rot in (("L", -1, ROT_NX), ("R", 1, ROT_PX)):
         g = geoms[side]
         pads = [b for b in g["bars"] if b[4] == "pad"]
         socks = []
         for (tag, Pn, u, _zn, _kd) in pads:
-            if len(pads) == 1:
+            if len(pads) == 1 or (YOKE_STRUT and tag == pads[0][0] and _strut_fits(g, pads[1][0], ybn)):
                 Xc = Pn + u * YOKE_STUB
                 jrot, perm = App.Rotation(V(0, 0, 1), u), False
                 col.append(ctx.cylinder(f"{name}_Stub{side}", ybn / 2, YOKE_STUB,
@@ -1070,6 +1091,51 @@ def _yoke_pieces(ctx, name, label, col, arms, geoms, x_pad, collars, face_dia, f
                 old = g["bar_objs"][tag]
                 new = ctx.cut(f"{name}_Bar{side}Trim", old, trim)
                 arms[side] = [new if o is old else o for o in arms[side]]
+            elif YOKE_STRUT and _strut_fits(g, tag, ybn):
+                # Extra pads become their own strut.  Two axial engagements on two different
+                # axes fight each other, so the arm takes ONE bayonet (the first pad) and this
+                # spoke goes in afterwards as a free body: push it right into the column's deep
+                # bore, slide it back out into the arm's socket, turn it home.
+                jrot, perm = App.Rotation(V(0, 0, 1), u), False
+                X1 = Pn + u * STRUT_STUB
+                Xc = Pn + u * (STRUT_STUB + STRUT_BODY)
+                # a SLEEVE on the column, bored to take the strut's full diameter: a narrow
+                # spigot bore would stop the strut retracting, because its body fetches up
+                # against the sleeve's end face long before the bayonet is clear
+                stub = ctx.cylinder(f"{name}_Stub{side}{tag}", ybn / 2 + STRUT_WALL, STRUT_STUB,
+                                    x=Pn.x, y=Pn.y, z=Pn.z, rot=jrot)
+                bore_at = Pn + u * (STRUT_STUB - STRUT_BORE)
+                bore = ctx.cylinder(f"{name}_Bore{side}{tag}", ybn / 2 + STRUT_CLEAR,
+                                    STRUT_BORE + 1.0, x=bore_at.x, y=bore_at.y, z=bore_at.z, rot=jrot)
+                col.append(stub)
+                deep = Pn - u * STRUT_BACKBORE
+                col_cuts.append(ctx.cylinder(f"{name}_Bore{side}{tag}B", ybn / 2 + STRUT_CLEAR,
+                                             STRUT_STUB + STRUT_BACKBORE + 1.0,
+                                             x=deep.x, y=deep.y, z=deep.z, rot=jrot))
+                ctx.doc.removeObject(bore.Name)
+                # the strut: one plain bar, sunk STRUT_ENGAGE into the sleeve, bayonet at the end
+                tail = Pn + u * (STRUT_STUB - STRUT_ENGAGE)
+                st = [ctx.cylinder(f"{name}_Strut{side}{tag}Body", ybn / 2,
+                                   STRUT_ENGAGE + STRUT_BODY,
+                                   x=tail.x, y=tail.y, z=tail.z, rot=jrot)]
+                sp, _ = ctx.joint_pattern(f"{name}_Strut{side}{tag}Pegs", YB, ybn, "peg", rot=jrot)
+                sp.Placement = App.Placement(Xc, jrot)
+                strut = ctx.fuse(f"{label}-Strut{side}", st + [sp])
+                strut.Label = f"{label}-Strut{side}"
+                struts.append((strut.Label, strut))
+                # the arm keeps only what is outboard of the strut
+                back = Pn - u * 2.0
+                extra_cuts[side] += [
+                    # wide enough for the sleeve over its length, slim for the strut beyond it
+                    ctx.cylinder(f"{name}_Trim{side}{tag}A", ybn / 2 + STRUT_WALL + STRUT_CLEAR,
+                                 STRUT_STUB + 2.0, x=back.x, y=back.y, z=back.z, rot=jrot),
+                    ctx.cylinder(f"{name}_Trim{side}{tag}B", ybn / 2 + STRUT_CLEAR,
+                                 STRUT_STUB + STRUT_BODY + 2.0,
+                                 x=back.x, y=back.y, z=back.z, rot=jrot)]
+                s_, _ = ctx.joint_pattern(f"{name}_Arm{side}{tag}Sockets", YB, ybn, "socket", rot=jrot)
+                s_.Placement = App.Placement(Xc, jrot)
+                socks.append(s_)
+                continue
             else:
                 xpn = pads[0][1].x / 0.98
                 tcross = (xpn - Pn.x) / u.x if abs(u.x) > 1e-9 else 0.0
@@ -1101,14 +1167,17 @@ def _yoke_pieces(ctx, name, label, col, arms, geoms, x_pad, collars, face_dia, f
         arm = ctx.common(f"{name}_Arm{side}Cut", armbody, keep)
         if key_tools is not None:
             arm = ctx.cut(f"{name}_Arm{side}Key", arm, key_tools[side])
-        for k, tool in enumerate((arm_cuts or {}).get(side, [])):
+        for k, tool in enumerate(list((arm_cuts or {}).get(side, [])) + extra_cuts[side]):
             arm = ctx.cut(f"{name}_Arm{side}Relief{k+1}", arm, tool)
         arm = ctx.cut(f"{name}_Arm{side}S", arm, ctx.fuse(f"{name}_Arm{side}SocketsAll", arm_socks[side]))
         arm = ctx.fuse(f"{label}-Arm{side}", [arm, ball_pegs[side]])
         arm.Label = f"{label}-Arm{side}"; pieces.append((arm.Label, arm))
+    pieces += struts
     if key_piece is not None:
         pieces.append(key_piece)
     body = ctx.fuse(f"{name}_ColBody", col)
+    for i, t_ in enumerate(col_cuts):
+        body = ctx.cut(f"{name}_ColBore{i+1}", body, t_)
     for i, s_ in enumerate(end_socks):
         body = ctx.cut(f"{name}_ColS{i+1}", body, s_)
     colp = ctx.fuse(f"{label}-Column", [body] + end_pegs + col_pegs)

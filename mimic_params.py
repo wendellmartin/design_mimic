@@ -105,11 +105,11 @@ PARAMS = [
 
     # ---- Version -----------------------------------------------------------
     ("VersionMajor",    "I", 1, "Version", ""),
-    ("VersionMinor",    "I", 9, "Version", ""),
+    ("VersionMinor",    "I", 10, "Version", ""),
     ("VersionBuild",    "I", 0, "Version", ""),
     ("VersionEmbossDepth","L",0.5,"Version", ""),
-    ("VersionNumber",   "S", "1.9.0", "Version", "", "str(VersionMajor) + <<.>> + str(VersionMinor) + <<.>> + str(VersionBuild)"),
-    ("VersionString",   "S", "v1.9.0","Version", "", "<<v>> + VersionNumber"),
+    ("VersionNumber",   "S", "1.10.0", "Version", "", "str(VersionMajor) + <<.>> + str(VersionMinor) + <<.>> + str(VersionBuild)"),
+    ("VersionString",   "S", "v1.10.0","Version", "", "<<v>> + VersionNumber"),
 ]
 
 TYPES = {"L": "App::PropertyLength", "F": "App::PropertyFloat", "A": "App::PropertyAngle",

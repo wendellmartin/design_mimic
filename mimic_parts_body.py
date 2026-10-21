@@ -17,8 +17,11 @@ FOOT_HEEL = 0.3     # fraction of FootLength behind the ankle
 FOOT_ANKLE_H = 0.66 # instep height at the ankle, fraction of the full sole-to-ankle-face height
 TOE_REACH = 0.6     # toe length beyond the front face, fraction of FootLength
 TOE_BLADE_W = 0.5   # toe width (x) at the root, fraction of ToeWidth
-TOE_APEX = 0.4      # where the bottom edge peaks, fraction of the exposed toe length
-TOE_RISE = 0.35     # how high the bottom edge arcs above the sole, fraction of FootHeight
+TOE_APEX = float(os.environ.get("MIMIC_TOE_APEX", "0.5"))    # where the bottom edge peaks,
+                    # fraction of the exposed toe length: 0.5 puts it halfway out.
+TOE_RISE = float(os.environ.get("MIMIC_TOE_RISE", "0.175"))   # how high the bottom edge arcs
+                    # above the sole, fraction of FootHeight.  Both ends stay on the sole,
+                    # so this is purely how much the claw lifts in the middle.
 TOE_FAN_DEG = 0.0   # outer toes splay this much (0 = parallel)
 FOOT_ANKLE_W = 0.76 # foot width from the heel to the front face, fraction of FootWidth (parallel sides)
 FOOT_BLOCK = 0.16   # the solid foot block ends this far ahead of the ankle (fraction of FootLength; must cover the ankle post)

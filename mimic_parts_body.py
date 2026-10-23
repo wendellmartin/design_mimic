@@ -1362,10 +1362,12 @@ EYEDISK_BACK = 0.3            # glue gap behind
 EYEDISK_PUPIL = 0.36          # pupil column radius, as a fraction of the disk's
 EYEDISK_FLOOR = 0.7           # base plate the fibres stand on
 EYEDISK_LIMBUS = 0.9          # width of the base's outer ring: what the striations run out to
-EYEDISK_COLLAR = 0.8          # solid ruff around the pupil, which is what ties the comb together
-EYEDISK_FIBRES = 40           # striations
-EYEDISK_TIP = 0.36            # striation width where it leaves the pupil: one extrusion
-EYEDISK_WIDTH = (0.50, 0.76)  # ...and out at the limbal ring, narrowest to widest
+EYEDISK_FIBRES = 32           # striations
+EYEDISK_FOOT = 1.30           # round foot at the pupil, diameter as a multiple of the spacing
+                              # there: over 1 means neighbouring feet overlap, so the comb is one
+                              # piece with no ring around the pupil to tie it together
+EYEDISK_TIP = 0.58            # the bar growing out of that foot
+EYEDISK_WIDTH = (0.68, 1.00)  # ...and out at the limbal ring, narrowest to widest
 EYEDISK_REACH = (0.55, 1.00)  # how far each one runs out, as a fraction of the band
 
 
@@ -1409,14 +1411,28 @@ def build_eyedisk(ctx):
     upper = rest.cut(Part.makeCylinder(rp + 1.0, EYEDISK_FLOOR))
     # one taper for the whole comb: every fibre leaves the ruff at TIP and widens with radius, so
     # a short one is finer than a long one all the way along
-    taper = lambda w, r: EYEDISK_TIP + (w - EYEDISK_TIP) * (r - r_pup) / (r_lim - r_pup)
-    bars, widths = [upper.common(col(r_pup + EYEDISK_COLLAR))], []
+    # Each fibre is a round foot at the pupil with a tapered bar growing out of it, the bar's far
+    # end capped by a half-round.  The feet are wider than the spacing, so they overlap and tie the
+    # comb into one piece with no ring to do it.  They have to be ROUND: two tapered bars that
+    # merely widen until they touch meet at a single tangent point, and the knife edge that leaves
+    # in the base between them is what makes that cut come out non-solid.  Circles cross at a
+    # proper angle, so the base's web between two fibres ends in a corner instead.
+    rc = r_pup + 0.3                                        # foot centre
+    rf = EYEDISK_FOOT * math.pi * rc / EYEDISK_FIBRES       # ...and radius: over half the spacing
+    taper = lambda w, r: EYEDISK_TIP + (w - EYEDISK_TIP) * (r - rc) / (r_lim - rc)
+    bars, widths = [], []
     for k in range(EYEDISK_FIBRES):
         w = _wander(EYEDISK_WIDTH, k, 2.39996)
-        L = r_pup + _wander(EYEDISK_REACH, k, 1.17, 0.7) * (r_lim - r_pup)
-        wi, wo = EYEDISK_TIP / 2, taper(w, L) / 2
-        p = [V(r_pup, -wi, -1.0), V(L, -wo, -1.0), V(L, wo, -1.0), V(r_pup, wi, -1.0)]
-        b = Part.Face(Part.makePolygon(p + [p[0]])).extrude(V(0, 0, tall))
+        tip = rc + _wander(EYEDISK_REACH, k, 1.17, 0.7) * (r_lim - rc)
+        wi, wo = EYEDISK_TIP / 2, taper(w, tip) / 2
+        L = tip - wo                        # the rounded end reaches `tip`, not the straight part
+        r0 = rc - rf * 0.5                  # the bar starts inside the foot
+        lo, hi = [V(r0, -wi, -1.0), V(L, -wo, -1.0)], [V(L, wo, -1.0), V(r0, wi, -1.0)]
+        edges = [Part.makeLine(lo[0], lo[1]),
+                 Part.Arc(lo[1], V(tip, 0, -1.0), hi[0]).toShape(),
+                 Part.makeLine(hi[0], hi[1]), Part.makeLine(hi[1], lo[0])]
+        b = Part.Face(Part.Wire(edges)).extrude(V(0, 0, tall))
+        b = b.fuse(Part.makeCylinder(rf, tall, V(rc, 0, -1.0)))
         b.rotate(V(0, 0, 0), V(0, 0, 1), k * 360.0 / EYEDISK_FIBRES)
         bars.append(b)
         widths.append(w)
@@ -1432,14 +1448,14 @@ def build_eyedisk(ctx):
     # where the average fibre's neighbours are far enough apart to slice as separate walls;
     # inside that the comb is one solid ruff, which is what holds it together
     wa = sum(widths) / len(widths)
-    merge = next((r / 10.0 for r in range(int(r_pup * 10), int(r_lim * 10) + 1)
+    merge = next((r / 10.0 for r in range(int(rc * 10), int(r_lim * 10) + 1)
                   if 2 * math.pi * (r / 10.0) / EYEDISK_FIBRES - taper(wa, r / 10.0) >= 0.4),
                  r_lim)
     print(f"[mimic]   eye disk: {2*rp:.1f} mm across, {H:.1f} mm at the centre, split three ways: "
           f"base {vol['EyeIrisBase']:.0f} + fibre {vol['EyeIrisFiber']:.0f} + "
           f"pupil {vol['EyePupil']:.0f} = {sum(vol.values()):.0f} mm3 vs plug {plug.Volume:.0f}")
-    print(f"[mimic]   {EYEDISK_FIBRES} striations, {EYEDISK_TIP} mm at the pupil widening to "
-          f"{EYEDISK_WIDTH[0]}-{EYEDISK_WIDTH[1]}, "
+    print(f"[mimic]   {EYEDISK_FIBRES} striations, a {2*rf:.2f} mm foot at the pupil then "
+          f"{EYEDISK_TIP} widening to {EYEDISK_WIDTH[0]}-{EYEDISK_WIDTH[1]}, "
           f"merged into the ruff out to r={merge:.1f}, separate from there to r={r_lim:.1f}; "
           f"pupil {2*r_pup:.1f} mm, plate {EYEDISK_FLOOR} mm, limbal ring {EYEDISK_LIMBUS} mm")
     return out

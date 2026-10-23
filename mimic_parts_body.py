@@ -1345,14 +1345,39 @@ def build_boxtool(ctx):
 # it is exactly the plug that cut removed: a spherical front that sits flush with the eyeball and
 # a flat back that lands on the dimple floor.  A flat-fronted disk would stand proud at the rim,
 # because the dimple is 3.5 mm deep at its centre and only 2.1 at its edge.
-EYEDISK_CLEAR = 0.25          # radial glue gap
+#
+# That plug is then split into three interlocking parts for a three-filament print: a base, a comb
+# of radial fibres that drops into it from the front, and the pupil column through the middle.
+# The fibres are parallel-sided bars, not pie wedges, so they stay the same width all the way out
+# and read as striations rather than as a pinwheel; near the pupil they sit closer together than
+# they are wide and merge into one solid ruff, which is both what an iris does and what holds the
+# comb together as a single piece.  The base is tied together by the plate underneath, so it needs
+# nothing else.  Neither part can turn or slide in the other.
+#
+# The cuts are exact -- the three solids share their faces with no gap -- so a tool-changing
+# slicer welds them into one object.  Printing them separately and gluing instead would want a
+# couple of tenths of clearance added here.
+EYEDISK_CLEAR = 0.25          # radial glue gap to the eyeball, not between the three parts
 EYEDISK_BACK = 0.3            # glue gap behind
-EYEDISK_INSET = (0.46, 0.38)  # optional centre inset: radius and depth, as fractions of the disk
+EYEDISK_PUPIL = 0.36          # pupil column radius, as a fraction of the disk's
+EYEDISK_FLOOR = 0.7           # base plate the fibres stand on
+EYEDISK_LIMBUS = 0.9          # width of the base's outer ring: what the striations run out to
+EYEDISK_COLLAR = 0.8          # solid ruff around the pupil, which is what ties the comb together
+EYEDISK_FIBRES = 40           # striations
+EYEDISK_TIP = 0.36            # striation width where it leaves the pupil: one extrusion
+EYEDISK_WIDTH = (0.50, 0.76)  # ...and out at the limbal ring, narrowest to widest
+EYEDISK_REACH = (0.55, 1.00)  # how far each one runs out, as a fraction of the band
+
+
+def _wander(ab, k, step, phase=0.0):
+    """Value in the range ab, walked by an irrational step so the pattern never repeats."""
+    return ab[0] + (ab[1] - ab[0]) * (0.5 + 0.5 * math.sin(k * step + phase))
 
 
 def build_eyedisk(ctx):
     """Pupil disks, glued into the eyeballs.  Not part of the figure, so the assembly leaves them
-    out; print two of each.  Modelled flat-back-down, which is how they want to print."""
+    out; print two of each.  Modelled flat-back-down, which is how they want to print, and all
+    three in one frame so the slicer can load them together as one multi-material object."""
     ED = ctx.s("EyeDiameter")
     Re = ED / 2.0
     rp = ED * HEAD_PUPIL - EYEDISK_CLEAR
@@ -1361,21 +1386,63 @@ def build_eyedisk(ctx):
     plug = ball.common(Part.makeCylinder(rp, Re * 2, V(0, 0, -Re)))
     plug = plug.cut(Part.makeBox(4 * Re, 4 * Re, Re * 2, V(-2 * Re, -2 * Re, floor - Re * 2)))
     plug.translate(V(0, 0, -floor))                 # flat back on z=0, dome up: ready to print
-    ir, idp = rp * EYEDISK_INSET[0], (Re - floor) * EYEDISK_INSET[1]
-    top = plug.BoundBox.ZMax
-    inset_cut = Part.makeCylinder(ir, idp + Re, V(0, 0, top - idp))
-    iris = ctx.obj("Part::Feature", "EyeIris", Shape=plug.cut(inset_cut))
-    iris.Label = "EyeIris"
-    # the inset disk that drops into that centre, if two colours are wanted
-    pup = ball.common(Part.makeCylinder(ir - EYEDISK_CLEAR, Re * 2, V(0, 0, -Re)))
-    pup = pup.cut(Part.makeBox(4 * Re, 4 * Re, Re * 2,
-                               V(-2 * Re, -2 * Re, (floor + (Re - floor) - idp) - Re * 2)))
-    pup.translate(V(0, 0, -(Re - idp)))
-    pupil = ctx.obj("Part::Feature", "EyePupil", Shape=pup)
-    pupil.Label = "EyePupil"
-    print(f"[mimic]   EyeIris: {2*rp:.1f} mm across, {Re-floor:.1f} mm at the centre, "
-          f"inset {2*ir:.1f} x {idp:.1f}; EyePupil fills that inset")
-    return [("EyeIris", iris), ("EyePupil", pupil)]
+    H = plug.BoundBox.ZMax
+    tall = H + Re
+
+    r_pup = rp * EYEDISK_PUPIL
+    r_lim = rp - EYEDISK_LIMBUS
+    col = lambda r: Part.makeCylinder(r, tall, V(0, 0, -1.0))
+
+    pupil = plug.common(col(r_pup))
+    rest = plug.cut(col(r_pup))
+    if H < EYEDISK_FLOOR + 1.2:
+        # a scale model's disk is a sliver -- no room to layer it, and nobody prints a 0.2 mm
+        # striation.  One plain iris plug and its pupil.
+        out = []
+        for name, shape in (("EyeIris", rest), ("EyePupil", pupil)):
+            o = ctx.obj("Part::Feature", name, Shape=shape)
+            o.Label = name
+            out.append((name, o))
+        print(f"[mimic]   eye disk: {2*rp:.1f} mm across, only {H:.2f} mm deep -- "
+              f"one-piece iris, no striations at this scale")
+        return out
+    upper = rest.cut(Part.makeCylinder(rp + 1.0, EYEDISK_FLOOR))
+    # one taper for the whole comb: every fibre leaves the ruff at TIP and widens with radius, so
+    # a short one is finer than a long one all the way along
+    taper = lambda w, r: EYEDISK_TIP + (w - EYEDISK_TIP) * (r - r_pup) / (r_lim - r_pup)
+    bars, widths = [upper.common(col(r_pup + EYEDISK_COLLAR))], []
+    for k in range(EYEDISK_FIBRES):
+        w = _wander(EYEDISK_WIDTH, k, 2.39996)
+        L = r_pup + _wander(EYEDISK_REACH, k, 1.17, 0.7) * (r_lim - r_pup)
+        wi, wo = EYEDISK_TIP / 2, taper(w, L) / 2
+        p = [V(r_pup, -wi, -1.0), V(L, -wo, -1.0), V(L, wo, -1.0), V(r_pup, wi, -1.0)]
+        b = Part.Face(Part.makePolygon(p + [p[0]])).extrude(V(0, 0, tall))
+        b.rotate(V(0, 0, 0), V(0, 0, 1), k * 360.0 / EYEDISK_FIBRES)
+        bars.append(b)
+        widths.append(w)
+    fibre = upper.common(bars[0].multiFuse(bars[1:])).removeSplitter()
+    base = rest.cut(fibre).removeSplitter()
+
+    out, vol = [], {}
+    for name, shape in (("EyeIrisBase", base), ("EyeIrisFiber", fibre), ("EyePupil", pupil)):
+        o = ctx.obj("Part::Feature", name, Shape=shape)
+        o.Label = name
+        vol[name] = shape.Volume
+        out.append((name, o))
+    # where the average fibre's neighbours are far enough apart to slice as separate walls;
+    # inside that the comb is one solid ruff, which is what holds it together
+    wa = sum(widths) / len(widths)
+    merge = next((r / 10.0 for r in range(int(r_pup * 10), int(r_lim * 10) + 1)
+                  if 2 * math.pi * (r / 10.0) / EYEDISK_FIBRES - taper(wa, r / 10.0) >= 0.4),
+                 r_lim)
+    print(f"[mimic]   eye disk: {2*rp:.1f} mm across, {H:.1f} mm at the centre, split three ways: "
+          f"base {vol['EyeIrisBase']:.0f} + fibre {vol['EyeIrisFiber']:.0f} + "
+          f"pupil {vol['EyePupil']:.0f} = {sum(vol.values()):.0f} mm3 vs plug {plug.Volume:.0f}")
+    print(f"[mimic]   {EYEDISK_FIBRES} striations, {EYEDISK_TIP} mm at the pupil widening to "
+          f"{EYEDISK_WIDTH[0]}-{EYEDISK_WIDTH[1]}, "
+          f"merged into the ruff out to r={merge:.1f}, separate from there to r={r_lim:.1f}; "
+          f"pupil {2*r_pup:.1f} mm, plate {EYEDISK_FLOOR} mm, limbal ring {EYEDISK_LIMBUS} mm")
+    return out
 
 
 def build_systembox(ctx):

@@ -1285,6 +1285,99 @@ SYSBOX_MIN_CAV   = 25.0           # hollow only when the cavity is at least this
 SYSBOX_MIN_FACE  = 70.0           # ... and the opening at least this wide and tall
 
 
+# ---- release tool for the cover -------------------------------------------------------------
+# The snaps go past what a hand can undo, so the cover needs a tool.  This is a tong: a U whose
+# arms run up the box's sides with a prong at each of the four windows, squeezed with one hand
+# while the other pulls the cover.  It straddles the box from BELOW, so the whole front face stays
+# clear to grab.  Arms cantilever off the bridge: 7 mm thick over ~115 mm, deflecting 4.5 mm, is
+# 0.45% strain and about 9 N an arm -- firm but a one-hand squeeze, and nowhere near PLA's limit.
+BOXTOOL_GAP = 5.5             # arm inner face to the box's side.  Must exceed BOXTOOL_PUSH:
+                              # at 1.2 the arms bottomed on the box's sides before the
+                              # prongs had travelled far enough to release anything.
+BOXTOOL_ARM = (7.0, 10.0)     # arm thickness (x) x width (z)
+BOXTOOL_PUSH = 4.5            # how far in the prongs drive the hooks past the catch
+BOXTOOL_PRONG = (12.0, 4.5)   # prong section: y x z, inside the window's 16.8 x 6.4
+BOXTOOL_BRIDGE = 10.0         # bridge bar thickness in y
+BOXTOOL_OVER = 16.0           # how far the arms reach past the outer windows
+
+
+def build_boxtool(ctx):
+    """Squeeze tool that releases the control box cover.  Modelled in the box's own frame so it
+    can be checked against it; it is not part of the figure and the assembly does not place it."""
+    Wn, Hn, Dn = ctx.s("SystemBoxWidth"), ctx.s("SystemBoxHeight"), ctx.s("SystemBoxDepth")
+    lid_t = Dn * 0.12 + SYSBOX_LID_FLOOR
+    z_in = Dn - lid_t
+    xi = Wn / 2 - SYSBOX_WALL
+    at, aw = BOXTOOL_ARM
+    zc = z_in - SYSBOX_CLIP[2] + SYSBOX_CLIP_CATCH / 2 + 0.2      # window centre in z
+    x_in = Wn / 2 + BOXTOOL_GAP                                   # arm inner face
+    hook_face = xi - SYSBOX_CLIP_CLEAR + SYSBOX_CLIP_HOOK         # where the hook sits now
+    # At rest the prongs just meet the hooks: slide the tool on from the front and they ride
+    # out on the side walls, then spring into the windows.  BOXTOOL_PUSH is the squeeze from
+    # there, not part of the prong -- model them fully home and the tool cannot be fitted.
+    reach = x_in - hook_face
+    y_top = -(SYSBOX_CLIP_Y + BOXTOOL_OVER)
+    # the bridge has to clear the box's bottom edge entirely, or it runs straight through it
+    y_bot = Hn / 2 + 2.0 + BOXTOOL_BRIDGE
+    feats = []
+    for sgn in (-1, 1):
+        x0 = min(sgn * x_in, sgn * (x_in + at))
+        feats.append(ctx.box(f"BoxTool_Arm{sgn}", at, y_bot - y_top, aw,
+                             x=x0, y=y_top, z=zc - aw / 2))
+        for cy in (-SYSBOX_CLIP_Y, SYSBOX_CLIP_Y):
+            px = min(sgn * x_in, sgn * (x_in - reach))
+            feats.append(ctx.box(f"BoxTool_Prong{sgn}{cy:.0f}", reach, BOXTOOL_PRONG[0], BOXTOOL_PRONG[1],
+                                 x=px, y=cy - BOXTOOL_PRONG[0] / 2, z=zc - BOXTOOL_PRONG[1] / 2))
+        # a thumb pad so the squeeze lands between the two prongs
+        feats.append(ctx.box(f"BoxTool_Pad{sgn}", 5.0, 44.0, aw,
+                             x=min(sgn * (x_in + at), sgn * (x_in + at + 5.0)), y=-22.0, z=zc - aw / 2))
+    feats.append(ctx.box("BoxTool_Bridge", 2 * (x_in + at), BOXTOOL_BRIDGE, aw,
+                         x=-(x_in + at), y=y_bot - BOXTOOL_BRIDGE, z=zc - aw / 2))
+    out = ctx.fuse("SystemBoxTool", feats)
+    out.Label = "SystemBoxTool"
+    print(f"[mimic]   SystemBoxTool: prong reach {reach:.1f} mm, drives each hook {BOXTOOL_PUSH:.1f} mm "
+          f"past the catch; arms {y_bot - y_top:.0f} mm")
+    return [("SystemBoxTool", out)]
+
+
+# ---- eye disks ------------------------------------------------------------------------------
+# The pupil is a flat-bottomed dimple cut into the front of each eyeball, so the disk that fills
+# it is exactly the plug that cut removed: a spherical front that sits flush with the eyeball and
+# a flat back that lands on the dimple floor.  A flat-fronted disk would stand proud at the rim,
+# because the dimple is 3.5 mm deep at its centre and only 2.1 at its edge.
+EYEDISK_CLEAR = 0.25          # radial glue gap
+EYEDISK_BACK = 0.3            # glue gap behind
+EYEDISK_INSET = (0.46, 0.38)  # optional centre inset: radius and depth, as fractions of the disk
+
+
+def build_eyedisk(ctx):
+    """Pupil disks, glued into the eyeballs.  Not part of the figure, so the assembly leaves them
+    out; print two of each.  Modelled flat-back-down, which is how they want to print."""
+    ED = ctx.s("EyeDiameter")
+    Re = ED / 2.0
+    rp = ED * HEAD_PUPIL - EYEDISK_CLEAR
+    floor = Re - ED * HEAD_PUPIL_DEPTH + EYEDISK_BACK
+    ball = Part.makeSphere(Re)
+    plug = ball.common(Part.makeCylinder(rp, Re * 2, V(0, 0, -Re)))
+    plug = plug.cut(Part.makeBox(4 * Re, 4 * Re, Re * 2, V(-2 * Re, -2 * Re, floor - Re * 2)))
+    plug.translate(V(0, 0, -floor))                 # flat back on z=0, dome up: ready to print
+    ir, idp = rp * EYEDISK_INSET[0], (Re - floor) * EYEDISK_INSET[1]
+    top = plug.BoundBox.ZMax
+    inset_cut = Part.makeCylinder(ir, idp + Re, V(0, 0, top - idp))
+    iris = ctx.obj("Part::Feature", "EyeIris", Shape=plug.cut(inset_cut))
+    iris.Label = "EyeIris"
+    # the inset disk that drops into that centre, if two colours are wanted
+    pup = ball.common(Part.makeCylinder(ir - EYEDISK_CLEAR, Re * 2, V(0, 0, -Re)))
+    pup = pup.cut(Part.makeBox(4 * Re, 4 * Re, Re * 2,
+                               V(-2 * Re, -2 * Re, (floor + (Re - floor) - idp) - Re * 2)))
+    pup.translate(V(0, 0, -(Re - idp)))
+    pupil = ctx.obj("Part::Feature", "EyePupil", Shape=pup)
+    pupil.Label = "EyePupil"
+    print(f"[mimic]   EyeIris: {2*rp:.1f} mm across, {Re-floor:.1f} mm at the centre, "
+          f"inset {2*ir:.1f} x {idp:.1f}; EyePupil fills that inset")
+    return [("EyeIris", iris), ("EyePupil", pupil)]
+
+
 def build_systembox(ctx):
     """Origin at the back face (against the spine pad); local +Z = outward (world +Y), local -Y = up.
 

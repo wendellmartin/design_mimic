@@ -77,7 +77,7 @@ correct front-facing camera (+Y is the front).
 | `mimic_resources.py` | builds `Mimic-Resources.FCStd`: VarSet `Dimensions` + MasterSketch (height stack); `values_from()` evaluates it |
 | `mimic_lib.py` | expression helpers (`R`, `S`, `half`, `mul`, `add`, `sub`, `neg`), `Ctx` (primitives, `fuse`/`cut`/`common`, peg/socket/`peg_pattern`), `peg_count`, `split_count`, `new_part_doc`, `finish`, `export_stl` |
 | `mimic_geom.py` | shoulder/pelvis yoke geometry shared by parts and assembly: `yoke_side`, `junction`, `ball_bend`; YOKES/BALL_RISE/FORWARD/CONNECTOR tables |
-| `mimic_parts.py` | snap test coupons, `segment()` (struts, auto-split; styles `a`/`b`/`c`, PISTON_*/BUMP_* knobs), `ball()` (with optional gear crest), limb builders incl. sided style trials (ForearmR, ThighL/R, UpperArmL/R, ShinL), `BUILDERS` list |
+| `mimic_parts.py` | snap test coupons, `segment()` (struts, auto-split with the joint inside the style's own material; styles `a`/`b`/`c`, PISTON_*/BUMP_* knobs), `ball()` (with optional gear crest), limb builders incl. sided style trials (ForearmR, ThighL/R, UpperArmL/R, ShinL), `BUILDERS` list |
 | `mimic_joints.py` | the joint used on every mating face: bayonet / collet / spigot, chosen by face size via `kind_for`; `Ctx.joint_pattern` calls it |
 | `mimic_jointtest.py` | joint test coupons (`JointTest` builder): split-cantilever snap tuning matrix, screw, bayonet, dovetail, magnet+pins. Absolute mm, raw `Part` shapes |
 | `mimic_parts_body.py` | head (+dentures), mouth (gums/tongue + teeth as two pieces), neck, spine, shoulder yoke, pelvis, system box, hands, feet (block + metatarsal loft + blade toes) |
@@ -101,13 +101,28 @@ Output folder `G:\My Drive\Projects\3D\Weyland\FNAF\Mimic\`: `Mimic-Resources.FC
   cuts out). All ABSOLUTE mm, numeric geometry. Decided 2026-10-01 from the printed coupons:
   - **bayonet** for joints that come apart (the whole chain) — nothing thin to snap, assembles
     by hand, and the helical run draws it tight. Needs a face >= 14.2 mm.
-  - **collet peg** for joints that are PERMANENT — the splits inside a long bone, which exist
-    only because of `BuildVolume`. At 0.55 mm interference it does not come back out. Not used
-    anywhere that gets handled: two snapped coming off the print bed. Face >= 12.4 mm.
+  - **collet peg** for joints that are PERMANENT and cannot be turned. At 0.55 mm interference
+    it does not come back out. Not used anywhere that gets handled: two snapped coming off the
+    print bed. Face >= 12.4 mm.
   - **spigot** (plain register, glued) below that; flat faces below 7 mm.
   The bayonet's **locked position is the modelled pose**; the entry slots sit a quarter turn
   back, so a part is offered up rotated anticlockwise and turned forward into place.
-  `split_count` chops long struts to fit `BuildVolume`.
+- **Splits inside a long bone** (`split_count` chops struts to fit `BuildVolume`) must read as
+  though the bone were never cut — a cylinder fused across the cut to host the joint is a
+  **cuff**, and it wrecked the long pieces (v1.13 fixed it). The joint goes in whatever the
+  style already has on the centreline:
+  - style **a** — solid strut, so a bayonet straight into it; the split falls inside the
+    decorative collar, which buries the seam too.
+  - style **c** — the pipe's core is solid, so the same bayonet sized to fit the core
+    (`joint_pattern(limit=...)`), and the cut slides to the **valley** between two bumps.
+  - style **b** — nothing on the axis at all, just two piston rods and air, so **one collet per
+    rod**. Two parallel joints can only agree on a straight push, so bayonets are out: each
+    would have to turn about its own axis. Two of them also key the halves against rotation,
+    which one central joint could not.
+  `split=True` through `joint_pattern` → `mimic_joints` sizes a split's joint to the material
+  around it (`BAYO_R_SPLIT_FRAC 0.26`, `COLLET_SPLIT_MAX_R/WALL`) instead of keeping it modest.
+  `segment(split_fit=True)` turns that on — **limbs only**: the spine and neck are printed
+  already and keep the joints they were printed with.
 - The original barbed peg (PegBaseDiameter 3, Flare 3.4, Depth 3, Tolerance 0.2, 35 deg flank)
   is still in `mimic_lib.peg_pattern` and still builds the `SnapTest` coupon, for reference.
   It is no longer used on the figure: its 0.0997 mm interference was hooped by a solid lip
@@ -151,7 +166,8 @@ FOOT_FILLET 0.06, TOE_REACH 0.6, TOE_BLADE_W 0.5, TOE_APEX 0.4, TOE_RISE 0.35, T
 `mimic_joints.py`: `BAYO_R_MIN/MAX 3.6/7.0`, `BAYO_LEN_MIN/MAX 8/11`, `BAYO_TURN 90`,
 `BAYO_SWEEP_EXTRA 18` (calibrated: the lug's leading edge meets the stop AT 90 deg),
 `BAYO_RAMP 0.5` / `BAYO_PRELOAD 0.10` (the cam: draws in, then wedges),
-`COLLET_INTERFERENCE 0.55` (his pick), `COLLET_WALL 2.0`.
+`COLLET_INTERFERENCE 0.55` (his pick), `COLLET_WALL 2.0`;
+split-only: `BAYO_R_SPLIT_FRAC 0.26`, `COLLET_SPLIT_MAX_R 5.5`, `COLLET_SPLIT_WALL 2.0`.
 
 ## OCC / FreeCAD lessons (hard-won — don't relearn)
 
@@ -187,8 +203,9 @@ FOOT_FILLET 0.06, TOE_REACH 0.6, TOE_BLADE_W 0.5, TOE_APEX 0.4, TOE_RISE 0.35, T
    splits. Unproven at figure scale as opposed to on coupons: check that a bayonet boss that
    protrudes 8-11 mm does not foul anything during assembly, and that the quarter turn is
    reachable by hand once the limb is on.
-2. Internals and connections (his words): pegs on split faces of style B/C segments land in
-   air at life size (no central strut) — needs a split-face plate; hollowing for big pieces.
+2. Hollowing for big pieces — Thigh-1of2 is still a solid litre of PLA. (The other half of this
+   item, "pegs on split faces of style B/C segments land in air", was closed at v1.13: the
+   plate that fixed it was the cuff, and the splits now use the style's own material instead.)
 3. Revisit hands (untouched since v0.2). Version imprint (`Version*` params, not yet applied).
 4. Multi-material Mouth: `MouthTeeth.stl` holds 14 shells; per-tooth files if the slicer wants them.
 

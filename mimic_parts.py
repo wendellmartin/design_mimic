@@ -46,17 +46,23 @@ def build_snaptest(ctx):
 
 # ============================================================== generic limb strut
 def segment(ctx, name, length, length_n, dia, dia_n, prox_face, prox_face_n, dist_face, dist_face_n,
-            rods=True, collar=True, extras=None, style="a", medial_sx=1):
+            rods=True, collar=True, extras=None, style="a", medial_sx=1, split_fit=False):
     """A strut from z=0 (proximal face, dia prox_face) to z=length (distal face, dia dist_face).
     `length` etc. are expression strings, `*_n` the scaled numeric values.  Splits itself to fit the build cube.
     style "a": one central strut with two thin rods and a collar.  style "c": a pipe with rounded
     ring bumps of alternating size (BUMP_* knobs).  style "b": a two-part piston --
     two thick barrels side by side from a proximal block, narrowing at PISTON_STROKE of the length
     to two rods that run into a distal crosshead (see the PISTON_* knobs); medial_sx says which
-    barrel (local X sign) is the medial, longer one."""
+    barrel (local X sign) is the medial, longer one.
+
+    `split_fit` sizes an internal split's joint to the material around it instead of keeping it
+    modest, and lets the cut slide to a bump valley.  The limb bones use it.  The spine and the
+    neck do not -- not because it would not suit them, but because the spine is printed already
+    and a joint that changes size is a piece that no longer fits the ones beside it."""
     cup = "0.35"                                    # cup height as a fraction of face diameter
     prox_cup_h = mul(prox_face, cup)
     dist_cup_h = mul(dist_face, cup)
+    bump = None                                     # style c's ring layout, for siting the splits
     feats = []
     feats.append(ctx.cone(f"{name}_ProxCup", half(prox_face), half(dia), prox_cup_h))
     feats.append(ctx.cone(f"{name}_DistCup", half(dia), half(dist_face), dist_cup_h,
@@ -92,6 +98,8 @@ def segment(ctx, name, length, length_n, dia, dia_n, prox_face, prox_face_n, dis
         span = sub(length, add(prox_cup_h, dist_cup_h))                     # rings between the cups
         span_n = length_n - (prox_face_n + dist_face_n) * float(cup)
         n_b = max(1, int(span_n / (dia_n * BUMP_PITCH)))
+        # bumps sit at (i + 0.5) / n_b of the span, so the valleys between them are at k / n_b
+        bump = dict(span=span, n=n_b, z0_n=prox_face_n * float(cup), pitch_n=span_n / n_b)
         for i in range(n_b):
             r_minor = BUMP_MINOR_R[i % len(BUMP_MINOR_R)]
             feats.append(ctx.torus(f"{name}_Bump{i+1}", mul(dia, BUMP_MAJOR_R), mul(dia, r_minor),
@@ -107,58 +115,120 @@ def segment(ctx, name, length, length_n, dia, dia_n, prox_face, prox_face_n, dis
             feats.append(ctx.cylinder(f"{name}_Rod{i+1}", rod_r, rod_len, x=x, y=y, z=prox_cup_h))
     if collar:
         feats.append(ctx.cylinder(f"{name}_Collar", mul(dia, 0.65), mul(length, 0.12), z=mul(length, 0.42)))
-    # Joint spuds: the sockets are cut after the body is fused, and on a hollow strut (styles b
-    # and c) a socket is wider than the core and simply cuts the end cup off.  Fill each jointed
-    # end out to the strut's own diameter for the joint's depth -- invisible on style a, which is
-    # already solid there, and a short collar at the base of the barrels/bumps on b and c.
-    # The joint is sized by the mating FACE and nothing else -- both halves have to come out the
-    # same size or they will not mate, and the ball has no idea what strut it meets.  So the spud
-    # is simply the face carried into the part as a solid boss, deep enough to host the socket.
+    # End spuds: the sockets are cut after the body is fused, and on a hollow strut (styles b and
+    # c) a socket is wider than the core and simply cuts the end cup off.  The joint is sized by
+    # the mating FACE and nothing else -- both halves have to come out the same size or they will
+    # not mate, and the ball has no idea what strut it meets -- so the face is carried into the
+    # part as a solid, deep enough to host the socket.
+    #
+    # Only as WIDE as the socket actually needs, though.  At the face diameter it stood a couple
+    # of millimetres proud of the very cup it was meant to hide inside, on every limb -- a small
+    # cuff of the same kind as the one at the splits.  At life size the strut's own diameter is
+    # plenty, so the stub comes out flush with the end of the cup and disappears; only where the
+    # socket is genuinely wider than the strut (the quarter-scale shin, where a 15 mm strut has to
+    # host an 18 mm face's joint) does it fall back to the face.  A cone carrying the cup's taper
+    # on would hide it at every scale, but at quarter scale it grazes the rods and the bumps at a
+    # shallow angle and the mesh comes back with a ring of slivers.
     import mimic_joints
-    pr = half(prox_face) if prox_face_n >= dia_n else half(dia)
-    dr = half(dist_face) if dist_face_n >= dia_n else half(dia)
-    pd = mimic_joints.envelope(prox_face_n)[1] + 1.0
-    dd = mimic_joints.envelope(dist_face_n)[1] + 1.0
-    feats.append(ctx.cylinder(f"{name}_SpudProx", pr, pd))
-    feats.append(ctx.cylinder(f"{name}_SpudDist", dr, dd, z=sub(length, f"{dd} mm")))
-    # A split is coaxial, so the halves turn freely against each other: these are bayonets
-    # like every other joint, not the press-fit collet.  kind_for still drops to a collet
-    # on its own for any strut too thin for a bayonet.
-    # ...and one straddling every split plane.  On a hollow strut the split joint sits on the
-    # centreline, which is empty space between the barrels or inside the pipe, so the boss came
-    # out as a loose 0.5 cm3 lump beside the part.
-    prot_s = mimic_joints.envelope(dia_n)[1] + 1.0
-    n_pre = split_count(length_n, ctx.v, max(mimic_joints.envelope(dia_n)[1],
-                                             mimic_joints.envelope(dist_face_n)[1]))
-    for i in range(1, n_pre):
-        feats.append(ctx.cylinder(f"{name}_SpudSplit{i}", half(dia), 2 * prot_s,
-                                  z=sub(f"{length} * {i} / {n_pre}", f"{prot_s} mm")))
-    body = ctx.fuse(f"{name}_Body", feats + list(extras or []))
+    pe = mimic_joints.envelope(prox_face_n)
+    de = mimic_joints.envelope(dist_face_n)
+    pr = half(prox_face) if pe[0] + mimic_joints.WALL > dia_n / 2 else half(dia)
+    dr = half(dist_face) if de[0] + mimic_joints.WALL > dia_n / 2 else half(dia)
+    feats.append(ctx.cylinder(f"{name}_SpudProx", pr, pe[1] + 1.0))
+    feats.append(ctx.cylinder(f"{name}_SpudDist", dr, de[1] + 1.0,
+                              z=sub(length, f"{de[1] + 1.0} mm")))
 
+    # ---- splits -----------------------------------------------------------------------------
+    # A bone longer than the build cube has to come apart, and the joint holding it together has
+    # to live INSIDE whatever the style already puts on the centreline.  A cylinder at the
+    # strut's full diameter used to be fused across every split to host it; on the two hollow
+    # styles that is a smooth cuff interrupting the barrels or the bumps, which is the one thing
+    # a split must not do -- the piece has to read as though it were never cut.  So:
+    #   a  the strut is solid the whole way, so the bayonet goes straight into it; the split
+    #      falls inside the decorative collar, which buries the seam as well.
+    #   c  the pipe's core is solid, so the same bayonet, sized to fit the core; the split slides
+    #      to the valley between two bumps, where the pipe is plain and the seam is a bare line.
+    #   b  there is nothing on the axis at all -- at half length it is two piston rods and air --
+    #      so each rod gets its own collet.  Two of them a rod-spacing apart key the halves
+    #      against each other, which no single central joint could have done; and a collet goes
+    #      in with a straight push, which is the only thing two parallel joints can agree on.
+    #      (Two bayonets cannot: each would have to turn about its own axis.)
+    if style == "b":
+        core_n = None
+        split_face_n = dia_n * 2 * PISTON_ROD_R                 # one piston rod
+        split_env = mimic_joints.envelope(split_face_n, permanent=True, split=True)
+    else:
+        core_n = dia_n * 2 * BUMP_CORE_R if style == "c" else dia_n
+        split_face_n = min(dia_n, core_n)
+        split_env = mimic_joints.envelope(split_face_n, split=split_fit)
     # the printed piece is the segment plus whatever the male joint sticks out past its end
-    prot = max(mimic_joints.envelope(dia_n)[1],
-               mimic_joints.envelope(dist_face_n)[1])
+    prot = max(split_env[1], mimic_joints.envelope(dist_face_n)[1])
     n = split_count(length_n, ctx.v, prot)
+    # how far a cut may be slid off the even spacing before a piece stops fitting the build cube
+    slack = (ctx.v["BuildVolume"] - prot - 2.0) - length_n / max(n, 1)
+    cuts = []                                                   # (expression, numeric) per split
+    for i in range(1, n):
+        z_expr, z_num = f"{length} * {i} / {n}", length_n * i / n
+        if split_fit and style == "c" and bump is not None and bump["n"] > 1:
+            even = z_num
+            k = min(range(1, bump["n"]),
+                    key=lambda j: abs(bump["z0_n"] + bump["pitch_n"] * j - even))
+            z_valley = bump["z0_n"] + bump["pitch_n"] * k
+            if abs(z_valley - even) <= slack:                   # otherwise leave it evenly spaced
+                z_expr = add(prox_cup_h, mul(bump["span"], f"{k} / {bump['n']}"))
+                z_num = z_valley
+        cuts.append((z_expr, z_num))
+    if cuts:
+        where = (f"a collet in each {split_face_n:.0f} mm rod, "
+                 f"{mimic_joints.describe(split_face_n, True, True)}" if style == "b" else
+                 f"{mimic_joints.describe(split_face_n, split=split_fit)} in a "
+                 f"{split_face_n:.0f} mm core")
+        print(f"[mimic]   {name}: {n} pieces, split at "
+              + ", ".join(f"{z:.0f}" for _e, z in cuts)
+              + f" of {length_n:.0f} mm ({slack:.0f} mm to spare); " + where)
+
+    def split_joints(tag, kind, idx):
+        """The joint(s) at internal split `idx` (1-based): one in the core, or one per rod."""
+        z_expr = cuts[idx - 1][0]
+        out = []
+        if style == "b":
+            for j, sx in enumerate((-1, 1)):
+                f, _ = ctx.joint_pattern(f"{name}_{tag}{j+1}", dia, split_face_n, kind, z=z_expr,
+                                         x=mul(dia, PISTON_SPREAD * sx), permanent=True, split=True)
+                out.append(f)
+        else:
+            f, _ = ctx.joint_pattern(f"{name}_{tag}", dia, dia_n, kind, z=z_expr,
+                                     limit=core_n, split=split_fit)
+            out.append(f)
+        return [f for f in out if f is not None]
+
+    def below(idx, tag):
+        """Everything proximal of internal split `idx`, as a cutting tool."""
+        return ctx.box(f"{name}_Below{idx}{tag}", BIG, BIG, BIG, x=-BIG / 2, y=-BIG / 2,
+                       z=sub(cuts[idx - 1][0], f"{BIG} mm"))
+
+    body = ctx.fuse(f"{name}_Body", feats + list(extras or []))
     pieces = []
     for i in range(n):
-        if n == 1:
-            piece = body
-        else:
-            z0 = f"{length} * {i} / {n}"
-            slab = ctx.box(f"{name}_Slab{i+1}", BIG, BIG, f"{length} / {n}", x=-BIG / 2, y=-BIG / 2, z=z0)
-            piece = ctx.common(f"{name}_Cut{i+1}", body, slab)
+        piece = body
+        if i < n - 1:
+            piece = ctx.common(f"{name}_Cut{i+1}", piece, below(i + 1, "a"))
+        if i > 0:
+            piece = ctx.cut(f"{name}_Over{i+1}", piece, below(i, "b"))
         # proximal side: sockets (from the ball, or from the previous piece)
         if i == 0:
             socks, _ = ctx.joint_pattern(f"{name}_ProxSockets", prox_face, prox_face_n, "socket")
+            piece = ctx.cut(f"{name}_S{i+1}", piece, socks)
         else:
-            socks, _ = ctx.joint_pattern(f"{name}_SplitSockets{i}", dia, dia_n, "socket", z=f"{length} * {i} / {n}")
-        piece = ctx.cut(f"{name}_S{i+1}", piece, socks)
+            for j, s in enumerate(split_joints(f"SplitSockets{i}", "socket", i)):
+                piece = ctx.cut(f"{name}_S{i+1}_{j+1}", piece, s)
         # distal side: pegs (into the ball, or into the next piece)
         if i == n - 1:
             pegs, _ = ctx.joint_pattern(f"{name}_DistPegs", dist_face, dist_face_n, "peg", z=length)
+            add_on = [pegs] if pegs is not None else []
         else:
-            pegs, _ = ctx.joint_pattern(f"{name}_SplitPegs{i+1}", dia, dia_n, "peg", z=f"{length} * {i+1} / {n}")
-        piece = ctx.fuse(f"{name}{'' if n == 1 else i+1}", [piece, pegs])
+            add_on = split_joints(f"SplitPegs{i+1}", "peg", i + 1)
+        piece = ctx.fuse(f"{name}{'' if n == 1 else i+1}", [piece] + add_on)
         piece.Label = f"{name}" if n == 1 else f"{name}-{i+1}of{n}"
         pieces.append((piece.Label, piece))
     return pieces
@@ -273,6 +343,7 @@ def _seg(ctx, name, L, D, prox_ball, dist_ball, **kw):
     length_n = ctx.s(L) - ctx.s(prox_ball) / 2 * ctx.v["JointCupOffset"] - ctx.s(dist_ball) / 2 * ctx.v["JointCupOffset"]
     prox_face = mul(S(prox_ball), cr); prox_n = ctx.s(prox_ball) * ctx.v["JointCupRatio"]
     dist_face = mul(S(dist_ball), cr); dist_n = ctx.s(dist_ball) * ctx.v["JointCupRatio"]
+    kw.setdefault("split_fit", True)      # every limb bone; the spine and neck keep what they have
     return segment(ctx, name, length, length_n, S(D), ctx.s(D), prox_face, prox_n, dist_face, dist_n, **kw)
 
 def build_thigh(ctx):    return _seg(ctx, "Thigh", "ThighLength", "ThighDiameter", "HipBall", "KneeBall")

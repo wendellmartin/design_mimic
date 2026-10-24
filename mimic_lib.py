@@ -194,7 +194,8 @@ class Ctx:
         o.Placement = App.Placement(App.Vector(0, 0, 0), rot or App.Rotation())
         return self.place(o, x=x, y=y, z=z)
 
-    def joint_pattern(self, name, face_dia_expr, face_dia_num, kind, z=0, rot=None, permanent=False, limit=None):
+    def joint_pattern(self, name, face_dia_expr, face_dia_num, kind, z=0, rot=None, permanent=False,
+                      limit=None, x=0, y=0, split=False):
         """The mating-face joint: a bayonet where the joint comes apart, a collet peg where it is
         permanent (the splits inside a long bone), a plain spigot where the face is too small for
         either.  Same contract as peg_pattern -- 'peg' fuses on, 'socket' cuts out -- so it is a
@@ -209,13 +210,13 @@ class Ctx:
         jk = mimic_joints.kind_for(face_dia_num, permanent)
         if os.environ.get("MIMIC_LOG_PEGS"):
             print(f"[pegs] {self.doc.Name} {name} {kind} face={face_dia_num:.2f}mm "
-                  f"-> {mimic_joints.describe(face_dia_num, permanent)}")
+                  f"-> {mimic_joints.describe(face_dia_num, permanent, split)}")
         if jk is None:
             return None, 0
-        shape = mimic_joints.shape(jk, kind == "peg", face_dia_num)
+        shape = mimic_joints.shape(jk, kind == "peg", face_dia_num, split)
         o = self.obj("Part::Feature", name)
         o.Shape = shape
-        return self._frame(o, 0, 0, z, rot), 1
+        return self._frame(o, x, y, z, rot), 1
 
     def peg_pattern(self, name, face_dia_expr, face_dia_num, kind, z=0, rot=None):
         """Ring of pegs or sockets on a circular mating face centred on the local origin, mating plane at z.

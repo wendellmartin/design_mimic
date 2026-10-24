@@ -8,10 +8,16 @@ Chosen 2026-10-01 after printing the JointTest coupons.  What the coupons showed
   PERMANENT joint -- but two of them snapped just getting the print off the bed, so it is a poor
   choice anywhere that gets handled or taken apart.
 
-So: **bayonet for joints that come apart, collet for joints that are permanent.**  The splits
-inside a long bone are permanent by definition (they exist only because the bone is longer than
-the build cube and are meant to read as one piece), so those get collets.  Everything in the
-chain -- balls, neck, feet, hands -- gets a bayonet where the face is big enough.
+So: **bayonet for joints that come apart, collet for joints that are permanent.**  Everything in
+the chain -- balls, neck, feet, hands -- gets a bayonet where the face is big enough.
+
+The splits inside a long bone are permanent by definition (they exist only because the bone is
+longer than the build cube and are meant to read as one piece), but they are still coaxial, so
+the halves can be turned against each other and a bayonet is both stronger and kinder to
+assemble.  They take one where the style has something solid on the centreline to put it in, and
+a pair of collets out in the piston rods where it does not.  Either way `split=True` sizes the
+joint to the material around it instead of keeping it modest: it is hidden and permanent, and it
+carries the whole limb on its own.
 
 Like the peg before it, all of this is ABSOLUTE millimetres, except that the bayonet grows a
 little with the mating face so big faces get a stronger joint.  Geometry is numeric (built at the
@@ -42,6 +48,12 @@ BAYO_R_MIN = 3.5                    # 3.5 so a 14 mm face (the ankle) still gets
 # figure (14-22 mm) comes out exactly as it did before: there 0.18 * face < 7 and 0.5 * face <= 11.
 BAYO_R_CAP, BAYO_R_FRAC = 7.0, 0.18
 BAYO_LEN_CAP, BAYO_LEN_FRAC = 11.0, 0.5
+# A split inside a long bone is a different animal from a joint that gets handled: it is
+# permanent, nothing has to reach past it, and it carries the whole limb's bending by itself.
+# So it gets as much boss as the material around it will take.  The cap is what still leaves a
+# sane wall: at 0.26 a 70 mm strut keeps 8.9 mm outside the lug channel, against 1.2 mm if the
+# boss were simply grown until it touched.
+BAYO_R_SPLIT_FRAC = 0.26
 BAYO_LEN_MIN = 8.0
 BAYO_CLEAR = 0.25       # radial clearance, boss to bore
 BAYO_CHAN_CLEAR = 0.15  # lug clearance in the circumferential channel
@@ -59,11 +71,15 @@ COLLET_BORE_CLEAR = 0.15
 COLLET_SLIT = 0.8
 COLLET_SLIT_FLOOR = 1.5
 COLLET_FACE_Z = 8.0     # flat retaining face height
-COLLET_TIP_R = 3.4
+COLLET_TIP = 0.6        # the barb tapers back to r - this at the tip (3.4 on the proven coupon)
 COLLET_GROOVE = 0.3
 COLLET_INTERFERENCE = 0.55   # his pick: "set in and I can't get it out"
 COLLET_EMBED = 2.5
 COLLET_ROOT = 1.2       # conical root fillet, to take the stress riser off the base
+COLLET_SPLIT_MAX_R = 5.5     # how far a split's collet may grow (see _collet_r)
+COLLET_SPLIT_WALL = 2.0      # ...and how much host it must leave, which is more than WALL: a
+                             # split's collet is pressed home once and never comes out, so the
+                             # ring it is forced into wants to be stout rather than minimal
 
 # ---- spigot: a plain register for faces too small for either, glued ------------
 SPIGOT_LEN = 6.0
@@ -87,9 +103,9 @@ def kind_for(face_num, permanent=False):
 
 
 # ============================================================ bayonet
-def _bayo_dims(face_num):
+def _bayo_dims(face_num, split=False):
     r_out = face_num / 2 - WALL
-    r_max = max(BAYO_R_CAP, BAYO_R_FRAC * face_num)
+    r_max = max(BAYO_R_CAP, (BAYO_R_SPLIT_FRAC if split else BAYO_R_FRAC) * face_num)
     len_max = max(BAYO_LEN_CAP, BAYO_LEN_FRAC * face_num)
     R = min(max((r_out - 0.6) / 1.4, BAYO_R_MIN), r_max)
     length = min(max(2.0 * R, BAYO_LEN_MIN), len_max)
@@ -99,8 +115,8 @@ def _bayo_dims(face_num):
     return dict(R=R, length=length, lug_r=lug_r, lug_out=0.4 * R, lug_z=length - lug_r - 1.2)
 
 
-def _bayo_male(face_num):
-    d = _bayo_dims(face_num)
+def _bayo_male(face_num, split=False):
+    d = _bayo_dims(face_num, split)
     R, length = d["R"], d["length"]
     body = Part.makeCylinder(R, length + 2.0, V(0, 0, -2.0))
     for ang in (0, 180):
@@ -130,10 +146,10 @@ def _bayo_run(r_in, r_out, lug_w, z0, sweep):
     return run
 
 
-def _bayo_female(face_num):
+def _bayo_female(face_num, split=False):
     """Bore, an entry slot per lug, and the ramped run.  Built with the entry at azimuth 0 and the
     lock at BAYO_TURN, then rotated back so the LOCK lands at azimuth 0 -- the modelled pose."""
-    d = _bayo_dims(face_num)
+    d = _bayo_dims(face_num, split)
     R, length = d["R"], d["length"]
     r_in = R + BAYO_CLEAR
     r_out = R + d["lug_out"] + 0.6
@@ -155,28 +171,43 @@ def _bayo_female(face_num):
 
 
 # ============================================================ collet peg
-def _collet_male(face_num):
-    r_barb = COLLET_OD_R + COLLET_BORE_CLEAR + COLLET_INTERFERENCE
-    sh = Part.makeCylinder(COLLET_OD_R, COLLET_FACE_Z + COLLET_EMBED, V(0, 0, -COLLET_EMBED))
-    sh = sh.fuse(Part.makeCone(r_barb, COLLET_TIP_R, COLLET_LEN - COLLET_FACE_Z, V(0, 0, COLLET_FACE_Z)))
-    sh = sh.fuse(Part.makeCone(COLLET_OD_R + COLLET_ROOT, COLLET_OD_R, COLLET_ROOT, V(0, 0, 0)))
-    sh = sh.cut(Part.makeCylinder(COLLET_OD_R - COLLET_WALL, COLLET_LEN + 1.0, V(0, 0, 0.0)))
+def _collet_r(face_num, split=False):
+    """Shaft radius.  A split's collet grows a little to suit the rod it sits in.  Everything that
+    sets how far the fingers have to bend -- the wall, the slit, the interference, the slit's
+    length -- is absolute, so a bigger collet's fingers deflect exactly as far as the coupon's
+    did; what grows is the arc of material behind them, which is shear and bending capacity.
+    What also grows with it is the force to press it home, and a bone split has TWO of them going
+    in at once, so the cap is deliberately short of what would fit."""
+    if not split:
+        return COLLET_OD_R
+    room = face_num / 2 - (COLLET_BORE_CLEAR + COLLET_INTERFERENCE + COLLET_GROOVE + COLLET_SPLIT_WALL)
+    return max(COLLET_OD_R, min(room, COLLET_SPLIT_MAX_R))
+
+
+def _collet_male(face_num, split=False):
+    r = _collet_r(face_num, split)
+    r_barb = r + COLLET_BORE_CLEAR + COLLET_INTERFERENCE
+    sh = Part.makeCylinder(r, COLLET_FACE_Z + COLLET_EMBED, V(0, 0, -COLLET_EMBED))
+    sh = sh.fuse(Part.makeCone(r_barb, r - COLLET_TIP, COLLET_LEN - COLLET_FACE_Z, V(0, 0, COLLET_FACE_Z)))
+    sh = sh.fuse(Part.makeCone(r + COLLET_ROOT, r, COLLET_ROOT, V(0, 0, 0)))
+    sh = sh.cut(Part.makeCylinder(r - COLLET_WALL, COLLET_LEN + 1.0, V(0, 0, 0.0)))
     for ang in (0, 90):
-        s = Part.makeBox(COLLET_SLIT, 4 * COLLET_OD_R, COLLET_LEN - COLLET_SLIT_FLOOR + 0.5,
-                         V(-COLLET_SLIT / 2, -2 * COLLET_OD_R, COLLET_SLIT_FLOOR))
+        s = Part.makeBox(COLLET_SLIT, 4 * r, COLLET_LEN - COLLET_SLIT_FLOOR + 0.5,
+                         V(-COLLET_SLIT / 2, -2 * r, COLLET_SLIT_FLOOR))
         s.rotate(V(0, 0, 0), V(0, 0, 1), ang)
         sh = sh.cut(s)
     return sh.removeSplitter()
 
 
-def _collet_female(face_num):
-    r_barb = COLLET_OD_R + COLLET_BORE_CLEAR + COLLET_INTERFERENCE
-    r_bore = COLLET_OD_R + COLLET_BORE_CLEAR
+def _collet_female(face_num, split=False):
+    r = _collet_r(face_num, split)
+    r_barb = r + COLLET_BORE_CLEAR + COLLET_INTERFERENCE
+    r_bore = r + COLLET_BORE_CLEAR
     t = Part.makeCylinder(r_bore, COLLET_FACE_Z + 0.5, V(0, 0, -0.5))
     t = t.fuse(Part.makeCylinder(r_barb + COLLET_GROOVE, COLLET_LEN + 0.4 - COLLET_FACE_Z,
                                  V(0, 0, COLLET_FACE_Z)))
     # clearance for the root fillet so the faces still meet
-    t = t.fuse(Part.makeCone(COLLET_OD_R + COLLET_ROOT + 0.15, COLLET_OD_R + 0.15, COLLET_ROOT, V(0, 0, -0.01)))
+    t = t.fuse(Part.makeCone(r + COLLET_ROOT + 0.15, r + 0.15, COLLET_ROOT, V(0, 0, -0.01)))
     return t.removeSplitter()
 
 
@@ -185,14 +216,14 @@ def _spigot_r(face_num):
     return max(1.6, min(face_num / 2 - WALL - 0.5, 3.0))
 
 
-def _spigot_male(face_num):
+def _spigot_male(face_num, split=False):
     r = _spigot_r(face_num)
     sh = Part.makeCylinder(r, SPIGOT_LEN + 1.5, V(0, 0, -1.5))
     top = Part.makeCone(r, r - 0.6, 0.6, V(0, 0, SPIGOT_LEN - 0.6))
     return sh.cut(Part.makeCylinder(r + 2, 0.8, V(0, 0, SPIGOT_LEN - 0.6)).cut(top)).removeSplitter()
 
 
-def _spigot_female(face_num):
+def _spigot_female(face_num, split=False):
     r = _spigot_r(face_num) + SPIGOT_CLEAR
     return Part.makeCylinder(r, SPIGOT_LEN + 1.0, V(0, 0, -0.5))
 
@@ -202,31 +233,34 @@ _MALE = {"bayo": _bayo_male, "collet": _collet_male, "spigot": _spigot_male}
 _FEMALE = {"bayo": _bayo_female, "collet": _collet_female, "spigot": _spigot_female}
 
 
-def shape(kind, male, face_num):
+def shape(kind, male, face_num, split=False):
     """The joint feature for a mating face of this diameter: a solid to fuse on (male) or a cavity
-    to cut out (female), protruding / running along local +Z from the mating plane at z = 0."""
-    return (_MALE if male else _FEMALE)[kind](face_num)
+    to cut out (female), protruding / running along local +Z from the mating plane at z = 0.
+
+    `split` means this is an internal split in a long bone rather than a joint between parts:
+    permanent, hidden, and sized to use the material around it rather than to stay modest."""
+    return (_MALE if male else _FEMALE)[kind](face_num, split)
 
 
-def envelope(face_num, permanent=False):
+def envelope(face_num, permanent=False, split=False):
     """(outer radius, depth) the joint occupies, so a caller can make sure there is material for
     it -- a socket cut into a hollow strut will otherwise sever its end cup."""
     k = kind_for(face_num, permanent)
     if k == "bayo":
-        d = _bayo_dims(face_num)
+        d = _bayo_dims(face_num, split)
         return d["R"] + d["lug_out"] + 0.6, d["length"] + 1.0
     if k == "collet":
-        return COLLET_OD_R + COLLET_BORE_CLEAR + COLLET_INTERFERENCE + COLLET_GROOVE, COLLET_LEN + 0.4
+        return _collet_r(face_num, split) + COLLET_BORE_CLEAR + COLLET_INTERFERENCE + COLLET_GROOVE, COLLET_LEN + 0.4
     if k == "spigot":
         return _spigot_r(face_num) + SPIGOT_CLEAR, SPIGOT_LEN + 1.0
     return 0.0, 0.0
 
 
-def describe(face_num, permanent=False):
+def describe(face_num, permanent=False, split=False):
     k = kind_for(face_num, permanent)
     if k == "bayo":
-        d = _bayo_dims(face_num)
+        d = _bayo_dims(face_num, split)
         return f"bayo R={d['R']:.1f} len={d['length']:.1f}"
     if k == "collet":
-        return f"collet OD={2*COLLET_OD_R:.0f} int={COLLET_INTERFERENCE}"
+        return f"collet OD={2*_collet_r(face_num, split):.1f} int={COLLET_INTERFERENCE}"
     return k or "flat (glue)"

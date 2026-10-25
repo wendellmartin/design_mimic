@@ -1361,14 +1361,17 @@ EYEDISK_CLEAR = 0.25          # radial glue gap to the eyeball, not between the 
 EYEDISK_BACK = 0.3            # glue gap behind
 EYEDISK_PUPIL = 0.36          # pupil column radius, as a fraction of the disk's
 EYEDISK_FLOOR = 0.7           # base plate the fibres stand on
-EYEDISK_LIMBUS = 0.9          # width of the base's outer ring: what the striations run out to
+EYEDISK_LIMBUS = 0.9          # width of the base's outer ring at the rim of the disk
+EYEDISK_RUN = 0.5             # ...and how much of it the longest striations run into
 EYEDISK_FIBRES = 40           # striations
 EYEDISK_FOOT = 1.30           # round foot at the pupil, diameter as a multiple of the spacing
                               # there: over 1 means neighbouring feet overlap, so the comb is one
                               # piece with no ring around the pupil to tie it together
 EYEDISK_TIP = 0.435           # the bar growing out of that foot
-EYEDISK_WIDTH = (0.51, 0.75)  # ...and out at the limbal ring, narrowest to widest
-EYEDISK_REACH = (0.55, 1.00)  # how far each one runs out, as a fraction of the band
+EYEDISK_WIDTH = (0.51, 0.90)  # ...and out where the longest ones end, narrowest to widest
+EYEDISK_REACH = (0.91, 1.00)  # how far each one runs out, as a fraction of the band.  A narrow
+                              # range on purpose: the ends stay close to the rim and to each
+                              # other, and it is the width that carries most of the variety
 EYEDISK_JITTER = 0.10         # how far a fibre may sit off its even slot, in slot widths
 
 # How each of those three varies around the ring: (order, amplitude, phase).  See _ring.
@@ -1416,6 +1419,7 @@ def build_eyedisk(ctx):
 
     r_pup = rp * EYEDISK_PUPIL
     r_lim = rp - EYEDISK_LIMBUS
+    r_run = rp - EYEDISK_LIMBUS * (1 - EYEDISK_RUN)   # the longest fibres run into the ring
     col = lambda r: Part.makeCylinder(r, tall, V(0, 0, -1.0))
 
     pupil = plug.common(col(r_pup))
@@ -1442,11 +1446,11 @@ def build_eyedisk(ctx):
     # proper angle, so the base's web between two fibres ends in a corner instead.
     rc = r_pup + 0.3                                        # foot centre
     rf = EYEDISK_FOOT * math.pi * rc / EYEDISK_FIBRES       # ...and radius: over half the spacing
-    taper = lambda w, r: EYEDISK_TIP + (w - EYEDISK_TIP) * (r - rc) / (r_lim - rc)
+    taper = lambda w, r: EYEDISK_TIP + (w - EYEDISK_TIP) * (r - rc) / (r_run - rc)
     bars, widths = [], []
     for k in range(EYEDISK_FIBRES):
         w = _wander(EYEDISK_WIDTH, EYEDISK_HARM_WIDTH, k)
-        tip = rc + _wander(EYEDISK_REACH, EYEDISK_HARM_REACH, k) * (r_lim - rc)
+        tip = rc + _wander(EYEDISK_REACH, EYEDISK_HARM_REACH, k) * (r_run - rc)
         wi, wo = EYEDISK_TIP / 2, taper(w, tip) / 2
         L = tip - wo                        # the rounded end reaches `tip`, not the straight part
         r0 = rc - rf * 0.5                  # the bar starts inside the foot
@@ -1475,15 +1479,15 @@ def build_eyedisk(ctx):
     # where the average fibre's neighbours are far enough apart to slice as separate walls;
     # inside that the comb is one solid ruff, which is what holds it together
     wa = sum(widths) / len(widths)
-    merge = next((r / 10.0 for r in range(int(rc * 10), int(r_lim * 10) + 1)
+    merge = next((r / 10.0 for r in range(int(rc * 10), int(r_run * 10) + 1)
                   if 2 * math.pi * (r / 10.0) / EYEDISK_FIBRES - taper(wa, r / 10.0) >= 0.4),
-                 r_lim)
+                 r_run)
     print(f"[mimic]   eye disk: {2*rp:.1f} mm across, {H:.1f} mm at the centre, split three ways: "
           f"base {vol['EyeIrisBase']:.0f} + fibre {vol['EyeIrisFiber']:.0f} + "
           f"pupil {vol['EyePupil']:.0f} = {sum(vol.values()):.0f} mm3 vs plug {plug.Volume:.0f}")
     print(f"[mimic]   {EYEDISK_FIBRES} striations, a {2*rf:.2f} mm foot at the pupil then "
           f"{EYEDISK_TIP} widening to {EYEDISK_WIDTH[0]}-{EYEDISK_WIDTH[1]}, "
-          f"merged into the ruff out to r={merge:.1f}, separate from there to r={r_lim:.1f}; "
+          f"merged into the ruff out to r={merge:.1f}, separate from there to r={r_run:.1f}; "
           f"pupil {2*r_pup:.1f} mm, plate {EYEDISK_FLOOR} mm, limbal ring {EYEDISK_LIMBUS} mm")
     return out
 

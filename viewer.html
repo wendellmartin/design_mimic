@@ -23,7 +23,7 @@ const dl=new THREE.DirectionalLight(0xffffff,0.8); dl.position.set(1,2,3); scene
 const dl2=new THREE.DirectionalLight(0xffffff,0.4); dl2.position.set(-2,-1,1); scene.add(dl2);
 scene.add(new THREE.GridHelper(1000,20,0x444444,0x333333).rotateX(Math.PI/2));
 const root=new THREE.Group(); scene.add(root);
-const colors={Head:0xc8c8c8,MouthGums:0xc25a62,MouthTeeth:0xf1e9d2,SystemBoxLid:0x7f8ca3,SystemBoxLatch:0xd8a23c,'ShoulderYoke-Key':0xd8a23c,'Pelvis-Key':0xd8a23c,Chest:0xa0a8b8,Pelvis:0xa0a8b8,Spine:0x9098a8,EyeIrisBase:0x2b5fa8,EyeIrisFiber:0xbcd6ee,EyePupil:0x101014};
+const colors={Head:0xc8c8c8,MouthGums:0xc25a62,MouthTeeth:0xf1e9d2,SystemBoxLid:0x7f8ca3,SystemBoxLatch:0xd8a23c,'ShoulderYoke-Key':0xd8a23c,'Pelvis-Key':0xd8a23c,Chest:0xa0a8b8,Pelvis:0xa0a8b8,Spine:0x9098a8,EyeIrisBase:0xdfe4ea,EyeIrisFiber:0xe07b26,EyePupil:0x101014};
 let H=500, meshes=[];
 const q=new URLSearchParams(location.search);
 fetch('Mimic-Assembly.json?'+Date.now()).then(r=>r.json()).then(a=>{

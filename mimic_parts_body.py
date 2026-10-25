@@ -1362,18 +1362,41 @@ EYEDISK_BACK = 0.3            # glue gap behind
 EYEDISK_PUPIL = 0.36          # pupil column radius, as a fraction of the disk's
 EYEDISK_FLOOR = 0.7           # base plate the fibres stand on
 EYEDISK_LIMBUS = 0.9          # width of the base's outer ring: what the striations run out to
-EYEDISK_FIBRES = 32           # striations
+EYEDISK_FIBRES = 40           # striations
 EYEDISK_FOOT = 1.30           # round foot at the pupil, diameter as a multiple of the spacing
                               # there: over 1 means neighbouring feet overlap, so the comb is one
                               # piece with no ring around the pupil to tie it together
-EYEDISK_TIP = 0.58            # the bar growing out of that foot
-EYEDISK_WIDTH = (0.68, 1.00)  # ...and out at the limbal ring, narrowest to widest
+EYEDISK_TIP = 0.435           # the bar growing out of that foot
+EYEDISK_WIDTH = (0.51, 0.75)  # ...and out at the limbal ring, narrowest to widest
 EYEDISK_REACH = (0.55, 1.00)  # how far each one runs out, as a fraction of the band
+EYEDISK_JITTER = 0.10         # how far a fibre may sit off its even slot, in slot widths
+
+# How each of those three varies around the ring: (order, amplitude, phase).  See _ring.
+# The orders in one table share no common factor, and the three tables are deliberately
+# unalike so length, width and spacing don't vary together.
+EYEDISK_HARM_REACH = ((5, 1.00, 0.0), (7, 0.62, 1.9), (11, 0.38, 3.7), (13, 0.23, 5.1))
+EYEDISK_HARM_WIDTH = ((3, 0.90, 2.4), (7, 0.55, 0.8), (11, 0.40, 4.6), (17, 0.25, 2.0))
+EYEDISK_HARM_ANGLE = ((4, 1.00, 1.3), (9, 0.55, 3.0), (13, 0.33, 0.4))
+EYEDISK_HARM_GAIN = 0.80      # <1 spends more of the range; the sum is clamped, so a few of
+                              # the fibres sit at the extreme instead of only brushing it
 
 
-def _wander(ab, k, step, phase=0.0):
-    """Value in the range ab, walked by an irrational step so the pattern never repeats."""
-    return ab[0] + (ab[1] - ab[0]) * (0.5 + 0.5 * math.sin(k * step + phase))
+def _ring(harm, k, n=None):
+    """-1..1 for fibre k, as a sum of harmonics OF THE RING ITSELF.
+
+    One frequency walked by a constant step -- what this used to be -- always lands back near
+    where it started, and the iris read as a six-pointed star with a two-fold mirror.  Summing
+    orders with no common factor leaves a pattern that is still smooth from one fibre to the
+    next (neighbours stay related, as they do in a real iris) but has no period to pick out.
+    """
+    t = 2 * math.pi * k / (n or EYEDISK_FIBRES)
+    s = sum(a * math.sin(m * t + p) for m, a, p in harm)
+    return max(-1.0, min(1.0, s / (EYEDISK_HARM_GAIN * sum(a for _, a, _ in harm))))
+
+
+def _wander(ab, harm, k):
+    """...and the same mapped into the range ab."""
+    return ab[0] + (ab[1] - ab[0]) * (0.5 + 0.5 * _ring(harm, k))
 
 
 def build_eyedisk(ctx):
@@ -1422,8 +1445,8 @@ def build_eyedisk(ctx):
     taper = lambda w, r: EYEDISK_TIP + (w - EYEDISK_TIP) * (r - rc) / (r_lim - rc)
     bars, widths = [], []
     for k in range(EYEDISK_FIBRES):
-        w = _wander(EYEDISK_WIDTH, k, 2.39996)
-        tip = rc + _wander(EYEDISK_REACH, k, 1.17, 0.7) * (r_lim - rc)
+        w = _wander(EYEDISK_WIDTH, EYEDISK_HARM_WIDTH, k)
+        tip = rc + _wander(EYEDISK_REACH, EYEDISK_HARM_REACH, k) * (r_lim - rc)
         wi, wo = EYEDISK_TIP / 2, taper(w, tip) / 2
         L = tip - wo                        # the rounded end reaches `tip`, not the straight part
         r0 = rc - rf * 0.5                  # the bar starts inside the foot
@@ -1433,7 +1456,11 @@ def build_eyedisk(ctx):
                  Part.makeLine(hi[0], hi[1]), Part.makeLine(hi[1], lo[0])]
         b = Part.Face(Part.Wire(edges)).extrude(V(0, 0, tall))
         b = b.fuse(Part.makeCylinder(rf, tall, V(rc, 0, -1.0)))
-        b.rotate(V(0, 0, 0), V(0, 0, 1), k * 360.0 / EYEDISK_FIBRES)
+        # ...and off its even slot, which breaks the regularity more than length alone does.
+        # The jitter has to stay well under FOOT - 1 slot or two feet come apart and the comb
+        # loses the web that ties it together.
+        b.rotate(V(0, 0, 0), V(0, 0, 1),
+                 (k + EYEDISK_JITTER * _ring(EYEDISK_HARM_ANGLE, k)) * 360.0 / EYEDISK_FIBRES)
         bars.append(b)
         widths.append(w)
     fibre = upper.common(bars[0].multiFuse(bars[1:])).removeSplitter()

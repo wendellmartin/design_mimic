@@ -80,7 +80,7 @@ correct front-facing camera (+Y is the front).
 | `mimic_parts.py` | snap test coupons, `segment()` (struts, auto-split with the joint inside the style's own material; styles `a`/`b`/`c`, PISTON_*/BUMP_* knobs), `ball()` (with optional gear crest), limb builders incl. sided style trials (ForearmR, ThighL/R, UpperArmL/R, ShinL), `BUILDERS` list |
 | `mimic_joints.py` | the joint used on every mating face: bayonet / collet / spigot, chosen by face size via `kind_for`; `Ctx.joint_pattern` calls it |
 | `mimic_jointtest.py` | joint test coupons (`JointTest` builder): split-cantilever snap tuning matrix, screw, bayonet, dovetail, magnet+pins. Absolute mm, raw `Part` shapes |
-| `mimic_parts_body.py` | head (+dentures), mouth (gums/tongue + teeth as two pieces), neck, spine, shoulder yoke, pelvis, system box, hands, feet (block + metatarsal loft + blade toes) |
+| `mimic_parts_body.py` | head (+dentures), mouth (gums/tongue + teeth as two pieces), neck, spine, shoulder yoke, pelvis, system box, hands, feet (block + metatarsal loft + blade toes), eye disks (iris base / fibres / pupil) |
 | `mimic_assembly.py` | numeric chain placements → `Mimic-Assembly.FCStd` + `Mimic-Assembly.json` |
 | `viewer.html` | three.js viewer (copied to output as `Mimic-Viewer.html`) |
 | `run.ps1`, `preview.ps1` | Wendell's launchers |
@@ -123,6 +123,20 @@ Output folder `G:\My Drive\Projects\3D\Weyland\FNAF\Mimic\`: `Mimic-Resources.FC
   around it (`BAYO_R_SPLIT_FRAC 0.26`, `COLLET_SPLIT_MAX_R/WALL`) instead of keeping it modest.
   `segment(split_fit=True)` turns that on — **limbs only**: the spine and neck are printed
   already and keep the joints they were printed with.
+- **The eye disks** (`EyeDisk`, glued into the eyeballs, not in the assembly) are three solids
+  cut from one plug — `EyeIrisBase`, `EyeIrisFiber`, `EyePupil` — sharing their faces with
+  **no clearance at all**, so a tool-changer welds them into one object. The guard is that the
+  three volumes sum to the plug's exactly; print them separately and you'd have to add a couple
+  of tenths here. Wendell's filaments: clear base, orange fibres, black pupil.
+  The striations are a comb of tapered bars on round feet. Two lessons that cost a day:
+  the feet must be **circles** (two bars that merely widen until they touch meet at a tangent
+  point, and the zero-thickness web that leaves in the base makes the cut non-solid), and each
+  bar must be **one closed wire extruded**, not a bar fused to a cap. How long, how wide and
+  where each one sits come from `_ring`, a sum of harmonics **of the ring itself** whose orders
+  share no common factor: one sine walked by a constant step gave the iris a six-pointed star
+  with a two-fold mirror. Two checks when tuning it — neighbouring gaps must open past 0.4 mm
+  (one extrusion) before the fibres are meant to read as separate, and the feet must stay
+  closer than `FOOT` slots apart or the comb loses the web that ties it together.
 - The original barbed peg (PegBaseDiameter 3, Flare 3.4, Depth 3, Tolerance 0.2, 35 deg flank)
   is still in `mimic_lib.peg_pattern` and still builds the `SnapTest` coupon, for reference.
   It is no longer used on the figure: its 0.0997 mm interference was hooped by a solid lip
@@ -162,7 +176,9 @@ turn, and likes replies short. Report each build as "vN.NN on Drive and in the v
 CHEEK_SIDE 0.5, CHEEK_DROP 0.5, CHEEK_CORNER 0.5, JAW_ATTACH 40, JAW_ANGLE 45, JAW_ROUND 0.7,
 SOCKET_* , BOSS_*, PUPIL 0.14/0.05); denture `DENTURE_INSET 0.4, FWD 0.05, DROP -0.08 (above
 the jaw), NOSE 0.9, W 1.6, T 0.5, ROD 0.2, LIP 0.2`; feet `FOOT_HEEL 0.3, FOOT_ANKLE_H 0.66,
-FOOT_FILLET 0.06, TOE_REACH 0.6, TOE_BLADE_W 0.5, TOE_APEX 0.4, TOE_RISE 0.35, TOE_FAN_DEG 12`.
+FOOT_FILLET 0.06, TOE_REACH 0.6, TOE_BLADE_W 0.5, TOE_APEX 0.4, TOE_RISE 0.35, TOE_FAN_DEG 12`;
+iris `EYEDISK_FIBRES 40, FOOT 1.30, TIP 0.435, WIDTH (0.44, 0.93), REACH (0.71, 1.00),
+LIMBUS 0.9, RUN 0.5, JITTER 0.10, HARM_* / HARM_GAIN 0.80`.
 `mimic_joints.py`: `BAYO_R_MIN/MAX 3.6/7.0`, `BAYO_LEN_MIN/MAX 8/11`, `BAYO_TURN 90`,
 `BAYO_SWEEP_EXTRA 18` (calibrated: the lug's leading edge meets the stop AT 90 deg),
 `BAYO_RAMP 0.5` / `BAYO_PRELOAD 0.10` (the cam: draws in, then wedges),

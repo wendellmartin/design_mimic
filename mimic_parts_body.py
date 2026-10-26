@@ -1368,8 +1368,11 @@ EYEDISK_FOOT = 1.30           # round foot at the pupil, diameter as a multiple 
                               # there: over 1 means neighbouring feet overlap, so the comb is one
                               # piece with no ring around the pupil to tie it together
 EYEDISK_TIP = 0.435           # the bar growing out of that foot
-EYEDISK_WIDTH = (0.51, 0.90)  # ...and out where the longest ones end, narrowest to widest
-EYEDISK_REACH = (0.91, 1.00)  # how far each one runs out, as a fraction of the band.  A narrow
+EYEDISK_WIDTH = (0.44, 0.93)  # ...and out where the longest ones end, narrowest to widest.
+                              # Spread about the same midpoint rather than grown at the top: a
+                              # pair of wide neighbours can weld into one fibre for its whole
+                              # length, and 0.95 at the top put two of those in the ring
+EYEDISK_REACH = (0.71, 1.00)  # how far each one runs out, as a fraction of the band.  A narrow
                               # range on purpose: the ends stay close to the rim and to each
                               # other, and it is the width that carries most of the variety
 EYEDISK_JITTER = 0.10         # how far a fibre may sit off its even slot, in slot widths

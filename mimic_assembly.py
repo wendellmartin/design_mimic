@@ -36,8 +36,8 @@ def build_assembly(out_dir, v, built):
     hip_xf = s("PelvisWidth") / 2 - s("HipBall") / 2 * co
     sh_xf = s("ShoulderWidth") / 2 - s("ShoulderBall") / 2 * co
     world = {}   # part name -> Placement of the part's local frame
-    world["Pelvis"] = P()                                    # origin = pelvis hub top
-    world["Spine"] = world["Pelvis"]
+    world["HipHarness"] = P()                                # origin = pelvis hub top
+    world["Spine"] = world["HipHarness"]
     z_box = s("SpineLength") + HH - s("ShoulderDrop") - s("SystemBoxDrop") - s("SystemBoxHeight") / 2   # box top SystemBoxDrop below T1
     world["SystemBox"] = world["Spine"] * P(V(0, s("SpineDiameter") * 0.5, z_box),
                                             App.Rotation(V(1, 0, 0), -90))
@@ -49,7 +49,7 @@ def build_assembly(out_dir, v, built):
     # ---- limbs, left (-X) and right (+X) ------------------------------------------
     for side, sx, rot_out in (("L", -1, ROT_NX), ("R", 1, ROT_PX)):
         gh = yoke_side(v, "pelvis", sx)
-        hip = world["Pelvis"] * P(gh["F"], gh["rot"])
+        hip = world["HipHarness"] * P(gh["F"], gh["rot"])
         world[f"HipBall{side}"] = hip
         thigh = hip * ball_distal(s("HipBall"), ball_bend(v, "pelvis", sx), yoke_prox=True)
         world[f"Thigh{side}"] = thigh

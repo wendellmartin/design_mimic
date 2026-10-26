@@ -417,12 +417,12 @@ def build_wristball(ctx):
 
 from mimic_jointtest import build_jointtest
 from mimic_parts_body import (build_foot, build_hand_l, build_hand_r, build_head, build_mouth, build_neck,
-                              build_spine, build_shoulderyoke, build_pelvis, build_systembox, build_boxtool, build_eyedisk)
+                              build_spine, build_shoulderyoke, build_hipharness, build_systembox, build_boxtool, build_eyedisk)
 
 BUILDERS = [
     ("SnapTest", build_snaptest), ("JointTest", build_jointtest),
     ("Head", build_head), ("Mouth", build_mouth), ("Neck", build_neck),
-    ("ShoulderYoke", build_shoulderyoke), ("Spine", build_spine), ("SystemBox", build_systembox), ("BoxTool", build_boxtool), ("EyeDisk", build_eyedisk), ("Pelvis", build_pelvis),
+    ("ShoulderYoke", build_shoulderyoke), ("Spine", build_spine), ("SystemBox", build_systembox), ("BoxTool", build_boxtool), ("EyeDisk", build_eyedisk), ("HipHarness", build_hipharness),
     ("HipBallL", build_hipball_l), ("HipBallR", build_hipball_r), ("Thigh", build_thigh), ("ThighL", build_thigh_l), ("ThighR", build_thigh_r), ("KneeBall", build_kneeball),
     ("Shin", build_shin), ("ShinL", build_shin_l), ("AnkleBall", build_ankleball), ("Foot", build_foot),
     ("ShoulderBallL", build_shoulderball_l), ("ShoulderBallR", build_shoulderball_r), ("UpperArm", build_upperarm), ("UpperArmL", build_upperarm_l), ("UpperArmR", build_upperarm_r), ("ElbowBall", build_elbowball),

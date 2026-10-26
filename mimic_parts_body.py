@@ -1251,19 +1251,23 @@ def _yoke_relief(ctx, geoms, sdn):
         cuts[side].append(slot)
     return cuts
 
-def build_pelvis(ctx):
-    """Root of the chain.  Origin at the top of the pelvis spine section (spine mating face), +Z up.
-    Upper collar just below the top (iliac bars slant down), lower collar at hip height (sacral
-    bars horizontal); the column runs down to the lower collar."""
+def build_hipharness(ctx):
+    """Root of the chain -- everything between the bottom of the spine and the two hip balls.
+    Origin at the top of the pelvis spine section (spine mating face), +Z up.  Upper collar just
+    below the top (iliac bars slant down), lower collar at hip height (sacral bars horizontal);
+    the column runs down to the lower collar.
+
+    Named for the set, not the bone: the six pieces only make sense together, and a printed
+    Arm or Strut on its own tells you nothing about where it goes."""
     SD = S("SpineDiameter"); sdn = ctx.s("SpineDiameter")
     hip_face, hip_face_n = _face(ctx, "HipBall")
-    col, arms, geoms, x_pad, x_padn, collars, knuckle = _yoke(ctx, "Pelvis", "pelvis", "PelvisWidth", "HipBall", hip_face)
+    col, arms, geoms, x_pad, x_padn, collars, knuckle = _yoke(ctx, "HipHarness", "pelvis", "PelvisWidth", "HipBall", hip_face)
     # the column ends flush with the lowest ring that still carries bars (S1)
     z_s1 = f"(({neg(mul(SD, 0.35))} + {neg(S('PelvisDrop'))}) / 2)"
     col_len = add(neg(z_s1), mul(SD, 0.25))
-    col.insert(0, ctx.cylinder("Pelvis_Column", half(SD), col_len, z=neg(col_len)))
-    spine_pegs, _ = ctx.joint_pattern("Pelvis_SpinePegs", SD, sdn, "peg")
-    return _yoke_pieces(ctx, "Pelvis", "Pelvis", col, arms, geoms, x_pad, collars,
+    col.insert(0, ctx.cylinder("HipHarness_Column", half(SD), col_len, z=neg(col_len)))
+    spine_pegs, _ = ctx.joint_pattern("HipHarness_SpinePegs", SD, sdn, "peg")
+    return _yoke_pieces(ctx, "HipHarness", "HipHarness", col, arms, geoms, x_pad, collars,
                         hip_face, hip_face_n, [spine_pegs], [], knuckle=knuckle)
 
 # ============================================================== system box

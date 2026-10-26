@@ -142,7 +142,7 @@ Output folder `G:\My Drive\Projects\3D\Weyland\FNAF\Mimic\`: `Mimic-Resources.FC
   It is no longer used on the figure: its 0.0997 mm interference was hooped by a solid lip
   (5.7 % strain, past PLA's break point), so the first insertion shaved it loose.
 - **Frames**: every chained part has origin = centre of its proximal mating face, local +Z
-  = chain direction. Sockets proximal, pegs distal. Pelvis is the root. World +Z up, +Y
+  = chain direction. Sockets proximal, pegs distal. HipHarness is the root. World +Z up, +Y
   forward. Chiral parts: HipBallL/R, ShoulderBallL/R, HandL/R; everything else shared.
 - `ball_bend` builds a **full frame** (limb local Y kept on world +Y) so chains have no
   twist — the earlier shortest-arc version yawed the feet 24°.
@@ -152,6 +152,13 @@ Output folder `G:\My Drive\Projects\3D\Weyland\FNAF\Mimic\`: `Mimic-Resources.FC
 
 ## Wendell's vocabulary (use it back to him)
 
+- The pelvic yoke is the **hipHarness** (renamed from Pelvis at v1.15): he wants the pieces that
+  only make sense together to say so in their names, so a printed part tells him where it goes.
+  `HipHarness-Column` (the spine stub and the inner half of every bar — the piece he printed
+  first), `-ArmL/-ArmR` (the outer bars, each carrying half the forward knuckle, butted on the
+  centre plane), `-StrutL/-StrutR` (the loose S1 spoke), `-Key` (the bowtie across the knuckle
+  seam). `HipBallL/R` stays in the ball family. At Scale 0.25 it all fits the cube and prints as
+  one `HipHarness`. The shoulder equivalent is still **ShoulderYoke**.
 - Shoulder yoke: **trap** = upper collar (C7 pad), **clavicle** = lower (T1 junction). Pelvis
   collars **L5 / S1 / S5**. Head: **C1** neck junction, **headbar** (the strap), **topbar**,
   **cheekbar**, **jawbar**, **eyeSocket**.
